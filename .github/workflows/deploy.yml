@@ -35,7 +35,7 @@ jobs:
               git clone https://github.com/ankurkushwaha809/-KUREMEDI-LUCENT-Project.git
             fi
 
-            cd "-KUREMEDI-LUCENT-Project/backend"
+            cd -- "-KUREMEDI-LUCENT-Project/backend"
 
             echo "Pull latest code"
             git pull origin main
