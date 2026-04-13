@@ -44,6 +44,9 @@ jobs:
             echo "Building admin panel..."
             cd Frontend/admin
 
+            export VITE_BASE_URL="https://backend.kuremedi.com/api"
+            export VITE_FILE_URL="https://backend.kuremedi.com"
+
             npm install
             npm run build
 
@@ -63,6 +66,7 @@ jobs:
             cd ../website
 
             export NEXT_PUBLIC_API_URL="https://backend.kuremedi.com/api"
+            export NEXT_PUBLIC_UPLOAD_BASE="https://backend.kuremedi.com"
 
             npm install
             npm run build
