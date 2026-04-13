@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "0e308afb-8ba1-419a-9548-d5451753785f"
+      }
+    },
+    "android": {
+      "package": "com.lucentapp.app"
+    }
+  }
+}

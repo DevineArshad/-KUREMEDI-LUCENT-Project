@@ -51,14 +51,14 @@
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": false
     },
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "dd4b0ebd-7266-4f79-a87e-eaaf85370414"
+        "projectId": "07a331b1-a9c9-4b2c-a348-86432eb61b31"
       }
     },
-    "owner": "ankur237"
+    "owner": "ankitsir"
   }
 }

@@ -11,6 +11,7 @@
         "buildType": "apk"
       },
       "env": {
+        "NODE_ENV": "production",
         "NODE_VERSION": "20",
         "NPM_CONFIG_LEGACY_PEER_DEPS": "1",
         "EXPO_PUBLIC_API_URL": "https://backend.kuremedi.com/api"
@@ -22,6 +23,7 @@
         "buildType": "apk"
       },
       "env": {
+        "NODE_ENV": "production",
         "NODE_VERSION": "20",
         "NPM_CONFIG_LEGACY_PEER_DEPS": "1",
         "EXPO_PUBLIC_API_URL": "https://backend.kuremedi.com/api"
@@ -30,9 +32,10 @@
     "production": {
       "autoIncrement": true,
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "apk"
       },
       "env": {
+        "NODE_ENV": "production",
         "NODE_VERSION": "20",
         "NPM_CONFIG_LEGACY_PEER_DEPS": "1",
         "EXPO_PUBLIC_API_URL": "https://backend.kuremedi.com/api"
