@@ -1,9 +1,13 @@
 name: Deploy Node Backend to EC2
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -11,10 +15,10 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v5
 
       - name: Deploy to EC2 via SSH
-        uses: appleboy/ssh-action@v0.1.6
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ubuntu
@@ -22,20 +26,32 @@ jobs:
           script: |
             set -e
 
+            echo "Connected to EC2"
+
             cd /home/ubuntu
 
-            if [ ! -d "/home/ubuntu/-KUREMEDI-LUCENT-Project" ]; then
+            # Clone repo if not exists
+            if [ ! -d "-KUREMEDI-LUCENT-Project" ]; then
               git clone https://github.com/ankurkushwaha809/-KUREMEDI-LUCENT-Project.git
             fi
 
-            cd /home/ubuntu/-KUREMEDI-LUCENT-Project/backend
+            cd "-KUREMEDI-LUCENT-Project/backend"
 
-            git fetch origin main
-            git reset --hard origin/main
+            echo "Pull latest code"
+            git pull origin main
 
+            echo "Install dependencies"
             npm install
 
-            pm2 delete backend || true
-            pm2 start index.js --name backend || pm2 restart backend
+            echo "Stop old processes"
+            pm2 delete all || true
+
+            echo "Start backend"
+            pm2 start index.js --name backend
 
             pm2 save
+
+            echo "Restart nginx"
+            sudo systemctl restart nginx
+
+            echo "Deployment successful 🚀"
