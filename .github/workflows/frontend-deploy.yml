@@ -35,23 +35,30 @@ jobs:
               git clone https://github.com/ankurkushwaha809/-KUREMEDI-LUCENT-Project.git
             fi
 
-            cd -- "-KUREMEDI-LUCENT-Project"
+            cd "-KUREMEDI-LUCENT-Project"
 
             echo "Pull latest code"
             git pull origin main
 
-            # ---------------- ADMIN (STATIC BUILD) ----------------
+            # -------- ADMIN BUILD --------
             echo "Building admin panel..."
             cd Frontend/admin
 
             npm install
             npm run build
 
+            # Check build success
+            if [ ! -d "dist" ]; then
+              echo "Admin build failed ❌"
+              exit 1
+            fi
+
             sudo rm -rf /var/www/admin
             sudo mkdir -p /var/www/admin
             sudo cp -r dist/* /var/www/admin/
+            sudo chmod -R 755 /var/www/admin
 
-            # ---------------- WEBSITE (NEXT.JS) ----------------
+            # -------- WEBSITE BUILD --------
             echo "Building website..."
             cd ../website
 
@@ -60,12 +67,15 @@ jobs:
             npm install
             npm run build
 
-            echo "Restart website"
-            pm2 delete website || true
+            # Ensure correct port
+            echo "Starting Next.js on port 3000"
+
+            pm2 delete all || true
             pm2 start npm --name website -- start
 
             pm2 save
 
+            # -------- NGINX RESTART --------
             echo "Restart nginx"
             sudo systemctl restart nginx
 
