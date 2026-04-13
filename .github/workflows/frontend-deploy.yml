@@ -70,7 +70,7 @@ jobs:
             # Ensure correct port
             echo "Starting Next.js on port 3000"
 
-            pm2 delete all || true
+            pm2 delete website || true
             pm2 start npm --name website -- start
 
             pm2 save
