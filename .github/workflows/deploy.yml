@@ -17,13 +17,25 @@ jobs:
         uses: appleboy/ssh-action@v0.1.6
         with:
           host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
+          username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            set -e
+
+            cd /home/ubuntu
+
+            if [ ! -d "/home/ubuntu/-KUREMEDI-LUCENT-Project" ]; then
+              git clone https://github.com/ankurkushwaha809/-KUREMEDI-LUCENT-Project.git
+            fi
+
             cd /home/ubuntu/-KUREMEDI-LUCENT-Project/backend
+
             git fetch origin main
             git reset --hard origin/main
+
             npm install
+
             pm2 delete backend || true
-            pm2 start index.js --name backend
+            pm2 start index.js --name backend || pm2 restart backend
+
             pm2 save
