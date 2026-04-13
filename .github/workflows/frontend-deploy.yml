@@ -1,31 +1,49 @@
 name: Deploy Frontend to EC2
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v5
 
-      - name: Deploy frontend
-        uses: appleboy/ssh-action@v0.1.6
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_FRONTEND_HOST }}
-          username: ${{ secrets.EC2_FRONTEND_USER }}
+          username: ubuntu
           key: ${{ secrets.EC2_FRONTEND_KEY }}
           script: |
-            cd /home/ubuntu/-KUREMEDI-LUCENT-Project
-            git fetch origin main
-            git reset --hard origin/main
+            set -e
 
-            echo "Building admin..."
+            echo "Connected to EC2"
+
+            cd /home/ubuntu
+
+            # Clone repo if not exists
+            if [ ! -d "-KUREMEDI-LUCENT-Project" ]; then
+              git clone https://github.com/ankurkushwaha809/-KUREMEDI-LUCENT-Project.git
+            fi
+
+            cd "-KUREMEDI-LUCENT-Project"
+
+            echo "Pull latest code"
+            git pull origin main
+
+            # ---------------- ADMIN (STATIC BUILD) ----------------
+            echo "Building admin panel..."
             cd Frontend/admin
+
             npm install
             npm run build
 
@@ -33,14 +51,22 @@ jobs:
             sudo mkdir -p /var/www/admin
             sudo cp -r dist/* /var/www/admin/
 
+            # ---------------- WEBSITE (NEXT.JS) ----------------
             echo "Building website..."
             cd ../website
+
             export NEXT_PUBLIC_API_URL="https://backend.kuremedi.com/api"
+
             npm install
             npm run build
 
+            echo "Restart website"
             pm2 delete website || true
             pm2 start npm --name website -- start
 
             pm2 save
+
+            echo "Restart nginx"
             sudo systemctl restart nginx
+
+            echo "Frontend deployment successful 🚀"
