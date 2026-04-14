@@ -1050,6 +1050,40 @@ const ensureShiprocketShipment = async (order) => {
   return String(shipmentId);
 };
 
+const extractShiprocketErrorMessage = (payload) => {
+  const candidates = [
+    payload?.message,
+    payload?.error,
+    payload?.data?.message,
+    payload?.data?.error,
+    payload?.response?.message,
+    payload?.response?.error,
+    payload?.response?.data?.message,
+    payload?.response?.data?.error,
+    payload?.errors?.[0]?.message,
+    payload?.data?.errors?.[0]?.message,
+    payload?.response?.data?.errors?.[0]?.message,
+  ];
+
+  for (const candidate of candidates) {
+    const text = String(candidate || "").trim();
+    if (text) return text;
+  }
+
+  return "Shiprocket shipment creation failed";
+};
+
+const validateShiprocketPayload = (orderDoc) => {
+  const addr = orderDoc?.shippingAddress || {};
+  const issues = [];
+  if (!String(addr.address || "").trim()) issues.push("address");
+  if (!String(addr.city || "").trim()) issues.push("city");
+  if (!String(addr.state || "").trim()) issues.push("state");
+  if (!String(addr.pincode || "").trim()) issues.push("pincode");
+  if (!String(addr.phone || "").trim()) issues.push("phone");
+  return issues;
+};
+
 /**
  * MANUAL SHIPROCKET RECOVERY (Admin)
  * POST /api/payment/orders/:orderId/shiprocket/generate-awb
@@ -1067,6 +1101,17 @@ export const generateOrderAwb = async (req, res) => {
     const order = await Order.findById(orderId);
     if (!order) {
       return res.status(404).json({ message: "Order not found" });
+    }
+
+    const payloadIssues = validateShiprocketPayload(order);
+    if (payloadIssues.length > 0) {
+      return res.status(400).json({
+        message: `Shiprocket validation failed: missing ${payloadIssues.join(", ")}.`,
+        shiprocketError: {
+          stage: "validation",
+          issues: payloadIssues,
+        },
+      });
     }
 
     if (order.shiprocketAwb && !force) {
@@ -1093,7 +1138,7 @@ export const generateOrderAwb = async (req, res) => {
     } catch (srErr) {
       const payload = srErr.shiprocket || srErr.response?.data || { message: srErr.message };
       return res.status(400).json({
-        message: "Failed to create Shiprocket shipment",
+        message: extractShiprocketErrorMessage(payload),
         shiprocketError: payload,
       });
     }
@@ -1224,7 +1269,7 @@ export const updateOrderStatus = async (req, res) => {
             status: srErr.response?.status,
           };
           return res.status(400).json({
-            message: "Failed to create Shiprocket shipment",
+            message: extractShiprocketErrorMessage(payload),
             shiprocketError: payload,
           });
         }
