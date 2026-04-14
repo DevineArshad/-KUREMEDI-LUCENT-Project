@@ -1146,6 +1146,33 @@ const creditWalletRefund = async ({ order, amount, description }) => {
   return { amount: roundedAmount, balance: wallet.balance };
 };
 
+const resolveRazorpayPaymentForRefund = async (order) => {
+  const fallback = { paymentId: null, amountRupee: 0 };
+  const razorpayOrderId = String(order?.razorpayOrderId || "").trim();
+  if (!razorpayOrderId) return fallback;
+
+  try {
+    const razorpay = getValidatedRazorpayConfig();
+    const gateway = await fetchRazorpayOrderPayments({
+      keyId: razorpay.keyId,
+      keySecret: razorpay.keySecret,
+      orderId: razorpayOrderId,
+    });
+
+    if (!gateway.ok) return fallback;
+    const payments = Array.isArray(gateway?.data?.items) ? gateway.data.items : [];
+    const captured = payments.find((p) => String(p?.status || "").toLowerCase() === "captured");
+    if (!captured?.id) return fallback;
+
+    return {
+      paymentId: String(captured.id),
+      amountRupee: roundCurrency(Number(captured.amount || 0) / 100),
+    };
+  } catch {
+    return fallback;
+  }
+};
+
 /**
  * MANUAL SHIPROCKET RECOVERY (Admin)
  * POST /api/payment/orders/:orderId/shiprocket/generate-awb
@@ -1387,8 +1414,29 @@ export const updateOrderStatus = async (req, res) => {
         if (!order.refundProcessed) {
           const payableAmount = roundCurrency(order.payableAmount || order.totalAmount || 0);
           const walletUsed = roundCurrency(order.walletAmount || 0);
-          const configuredGatewayAmount = roundCurrency(order.razorpayAmount || 0);
-          const hasOnlineGatewayPayment = Boolean(order.razorpayPaymentId && configuredGatewayAmount > 0);
+          let configuredGatewayAmount = roundCurrency(order.razorpayAmount || 0);
+          const expectedGatewayAmount = roundCurrency(Math.max(0, payableAmount - walletUsed));
+          let paymentIdForRefund = String(order.razorpayPaymentId || "").trim();
+
+          // Backfill payment id from Razorpay order when old/partial records are missing payment reference.
+          if (!paymentIdForRefund && String(order.paymentMethod || "").toUpperCase() === "ONLINE") {
+            const resolved = await resolveRazorpayPaymentForRefund(order);
+            if (resolved.paymentId) {
+              paymentIdForRefund = resolved.paymentId;
+              order.razorpayPaymentId = resolved.paymentId;
+            }
+            if (configuredGatewayAmount <= 0 && resolved.amountRupee > 0) {
+              configuredGatewayAmount = resolved.amountRupee;
+              order.razorpayAmount = resolved.amountRupee;
+            }
+          }
+
+          const gatewayRefundAmount = configuredGatewayAmount > 0 ? configuredGatewayAmount : expectedGatewayAmount;
+          const hasOnlineGatewayPayment = Boolean(
+            String(order.paymentMethod || "").toUpperCase() === "ONLINE" &&
+            paymentIdForRefund &&
+            gatewayRefundAmount > 0
+          );
 
           let refundedViaRazorpay = 0;
           let refundedToWallet = 0;
@@ -1396,11 +1444,11 @@ export const updateOrderStatus = async (req, res) => {
           if (hasOnlineGatewayPayment) {
             try {
               const refund = await createRazorpayRefund({
-                paymentId: order.razorpayPaymentId,
-                amountRupee: configuredGatewayAmount,
+                paymentId: paymentIdForRefund,
+                amountRupee: gatewayRefundAmount,
                 orderId: order._id,
               });
-              refundedViaRazorpay = roundCurrency(configuredGatewayAmount);
+              refundedViaRazorpay = roundCurrency(gatewayRefundAmount);
               razorpayRefundId = refund?.id || null;
             } catch (refundErr) {
               return res.status(400).json({
@@ -1439,9 +1487,13 @@ export const updateOrderStatus = async (req, res) => {
             if (refundedViaRazorpay > 0) parts.push(`Rs ${refundedViaRazorpay.toFixed(2)} via Razorpay`);
             if (refundedToWallet > 0) parts.push(`Rs ${refundedToWallet.toFixed(2)} to wallet`);
             refundMessage = `Refund processed: ${parts.join(" + ")}. Total Rs ${totalRefunded.toFixed(2)}.`;
-          } else if (payableAmount > 0 && String(order.paymentMethod || "").toUpperCase() === "ONLINE") {
+          } else if (
+            payableAmount > 0 &&
+            String(order.paymentMethod || "").toUpperCase() === "ONLINE" &&
+            expectedGatewayAmount > 0
+          ) {
             return res.status(400).json({
-              message: "Order has online payment but no refundable payment reference found.",
+              message: "Online payment reference is missing for this order. Please verify Razorpay payment mapping (razorpayOrderId/razorpayPaymentId) and retry.",
             });
           } else {
             order.status = "CANCELLED";

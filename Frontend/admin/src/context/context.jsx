@@ -440,11 +440,38 @@ export const ContextProvider = ({ children }) => {
       const normalizedValue = field === "status" ? normalizeOrderStatus(value) : value;
       // dynamically assign the field to update
       const payload = { orderId, [field]: normalizedValue };
+      const requestConfig = { headers: getAuthHeaders() };
 
-      const response = await axios.put(`${BASE_URL}/payment/update-status`, payload);
+      const response = await axios.put(
+        `${BASE_URL}/payment/update-status`,
+        payload,
+        requestConfig
+      );
       console.log("✅ Order status updated:", response.data);
       return response.data;
     } catch (error) {
+      const statusCode = Number(error?.response?.status || 0);
+      const canTryLegacyStatusRoute = field === "status";
+
+      // Backward compatibility: some deployments still expose the legacy admin status route.
+      if (canTryLegacyStatusRoute && [403, 404, 405].includes(statusCode)) {
+        try {
+          const legacyResponse = await axios.put(
+            `${BASE_URL}/orders/${orderId}/status`,
+            { status: normalizeOrderStatus(value) },
+            { headers: getAuthHeaders() }
+          );
+          console.log("✅ Order status updated (legacy route):", legacyResponse.data);
+          return legacyResponse.data;
+        } catch (legacyError) {
+          console.error(
+            "❌ Error updating order status via legacy route:",
+            legacyError.response?.data || legacyError
+          );
+          throw legacyError;
+        }
+      }
+
       console.error("❌ Error updating order status:", error.response?.data || error);
       throw error;
     }
@@ -454,7 +481,8 @@ export const ContextProvider = ({ children }) => {
     try {
       const response = await axios.post(
         `${BASE_URL}/payment/orders/${orderId}/shiprocket/generate-awb`,
-        { force }
+        { force },
+        { headers: getAuthHeaders() }
       );
       return response.data;
     } catch (error) {
@@ -465,7 +493,9 @@ export const ContextProvider = ({ children }) => {
 
   const getOrderById = async (orderId) => {
     try {
-      const response = await axios.get(`${BASE_URL}/payment/orders/${orderId}`);
+      const response = await axios.get(`${BASE_URL}/payment/orders/${orderId}`, {
+        headers: getAuthHeaders(),
+      });
       return response.data;
     } catch (error) {
       console.error("❌ Error fetching order by ID:", error);
@@ -478,7 +508,7 @@ export const ContextProvider = ({ children }) => {
     const base = BASE_URL.replace(/\/$/, "");
     const url = base.includes("/api") ? `${base}/payment/orders` : `${base}/api/payment/orders`;
     try {
-      const res = await axios.get(url);
+      const res = await axios.get(url, { headers: getAuthHeaders() });
       return res;
     } catch (error) {
       console.error("fetch orders error", error);
