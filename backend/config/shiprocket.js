@@ -3,17 +3,66 @@ import axios from "axios";
 let shiprocketToken = "";
 let tokenExpiry = null;
 
+const clearShiprocketTokenCache = () => {
+  shiprocketToken = "";
+  tokenExpiry = null;
+};
+
+const getShiprocketErrorMessage = (err) => {
+  return String(
+    err?.response?.data?.message ||
+      err?.response?.data?.error ||
+      err?.response?.data?.errors?.[0]?.message ||
+      err?.shiprocket?.message ||
+      err?.message ||
+      ""
+  )
+    .trim()
+    .toLowerCase();
+};
+
+const shouldReauthenticateShiprocket = (err) => {
+  const status = Number(err?.response?.status || err?.shiprocket?.status || 0);
+  if (status === 401 || status === 403) return true;
+
+  const message = getShiprocketErrorMessage(err);
+  return (
+    message.includes("access forbidden") ||
+    message.includes("unauthorized") ||
+    message.includes("invalid token") ||
+    message.includes("token expired")
+  );
+};
+
+const withShiprocketAuthRetry = async (requestFn) => {
+  let refreshedOnce = false;
+
+  while (true) {
+    const token = await getShiprocketToken({ forceRefresh: refreshedOnce });
+
+    try {
+      return await requestFn(token);
+    } catch (err) {
+      if (refreshedOnce || !shouldReauthenticateShiprocket(err)) {
+        throw err;
+      }
+      clearShiprocketTokenCache();
+      refreshedOnce = true;
+    }
+  }
+};
+
 /* ---------------------------------------------------------
    1️⃣ Login & Auto Cache Token
 ---------------------------------------------------------- */
-export const getShiprocketToken = async () => {
+export const getShiprocketToken = async ({ forceRefresh = false } = {}) => {
   if (!process.env.SHIPROCKET_EMAIL || !process.env.SHIPROCKET_PASSWORD) {
     const e = new Error("Shiprocket credentials missing. Set SHIPROCKET_EMAIL and SHIPROCKET_PASSWORD in .env");
     e.shiprocket = { stage: "config", message: "SHIPROCKET_EMAIL and SHIPROCKET_PASSWORD required" };
     throw e;
   }
   try {
-    if (shiprocketToken && tokenExpiry && new Date() < tokenExpiry) {
+    if (!forceRefresh && shiprocketToken && tokenExpiry && new Date() < tokenExpiry) {
       return shiprocketToken;
     }
 
@@ -157,8 +206,6 @@ export const mapOrderToShiprocketPayload = (orderDoc) => {
 
 export const createShiprocketOrder = async (order) => {
   try {
-    const token = await getShiprocketToken();
-
     // ✅ PREPAID / PARTIAL PAID = Prepaid
     // ❌ COD only when admin chooses COD intentionally (you don't have COD)
     const paymentMethod =
@@ -220,43 +267,33 @@ export const createShiprocketOrder = async (order) => {
       weight: 2,
     };
 
-    const postOrder = (body) =>
+    const postOrder = (body, token) =>
       axios.post(
         "https://apiv2.shiprocket.in/v1/external/orders/create/adhoc",
         body,
         { headers: { Authorization: `Bearer ${token}` } },
       );
 
-    let res;
-    try {
-      res = await postOrder(payload);
-    } catch (err) {
-      const data = err.response?.data;
-      const isWrongPickup =
-        data?.message &&
-        typeof data.message === "string" &&
-        data.message.toLowerCase().includes("pickup location");
-      const locations = data?.data?.data ?? data?.data;
-      const list = Array.isArray(locations) ? locations : [];
+    const res = await withShiprocketAuthRetry(async (token) => {
+      try {
+        return await postOrder(payload, token);
+      } catch (err) {
+        const data = err.response?.data;
+        const isWrongPickup =
+          data?.message &&
+          typeof data.message === "string" &&
+          data.message.toLowerCase().includes("pickup location");
+        const locations = data?.data?.data ?? data?.data;
+        const list = Array.isArray(locations) ? locations : [];
 
-      if (isWrongPickup && list.length > 0 && list[0].pickup_location) {
-        const correctPickup = list[0].pickup_location;
-        payload.pickup_location = correctPickup;
-        res = await postOrder(payload);
-      } else {
-        const details = data || err.message || err;
-        const e = new Error(
-          typeof details === "string" ? details : JSON.stringify(details),
-        );
-        e.shiprocket = {
-          stage: "create_order",
-          response: err.response?.data,
-          status: err.response?.status,
-          message: err.message,
-        };
-        throw e;
+        if (isWrongPickup && list.length > 0 && list[0].pickup_location) {
+          payload.pickup_location = list[0].pickup_location;
+          return await postOrder(payload, token);
+        }
+
+        throw err;
       }
-    }
+    });
 
     return res.data;
   } catch (err) {
@@ -280,12 +317,12 @@ export const createShiprocketOrder = async (order) => {
 ---------------------------------------------------------- */
 export const generateAWB = async (shipmentId) => {
   try {
-    const token = await getShiprocketToken();
-
-    const res = await axios.post(
-      "https://apiv2.shiprocket.in/v1/external/courier/assign/awb",
-      { shipment_id: Number(shipmentId) || shipmentId },
-      { headers: { Authorization: `Bearer ${token}` } },
+    const res = await withShiprocketAuthRetry((token) =>
+      axios.post(
+        "https://apiv2.shiprocket.in/v1/external/courier/assign/awb",
+        { shipment_id: Number(shipmentId) || shipmentId },
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
     );
 
     const data = res.data;
@@ -304,13 +341,14 @@ export const generateAWB = async (shipmentId) => {
 ---------------------------------------------------------- */
 export const generateLabel = async (shipmentId) => {
   try {
-    const token = await getShiprocketToken();
     const ids = Array.isArray(shipmentId) ? shipmentId : [Number(shipmentId) || shipmentId];
 
-    const res = await axios.post(
-      "https://apiv2.shiprocket.in/v1/external/courier/generate/label",
-      { shipment_id: ids },
-      { headers: { Authorization: `Bearer ${token}` } },
+    const res = await withShiprocketAuthRetry((token) =>
+      axios.post(
+        "https://apiv2.shiprocket.in/v1/external/courier/generate/label",
+        { shipment_id: ids },
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
     );
 
     const data = res.data;
@@ -333,13 +371,14 @@ export const generateLabel = async (shipmentId) => {
 ---------------------------------------------------------- */
 export const generateManifest = async (shipmentId) => {
   try {
-    const token = await getShiprocketToken();
     const ids = Array.isArray(shipmentId) ? shipmentId : [Number(shipmentId) || shipmentId];
 
-    const res = await axios.post(
-      "https://apiv2.shiprocket.in/v1/external/manifests/generate",
-      { shipment_id: ids },
-      { headers: { Authorization: `Bearer ${token}` } },
+    const res = await withShiprocketAuthRetry((token) =>
+      axios.post(
+        "https://apiv2.shiprocket.in/v1/external/manifests/generate",
+        { shipment_id: ids },
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
     );
 
     return res.data;
@@ -356,17 +395,19 @@ export const generateManifest = async (shipmentId) => {
 ---------------------------------------------------------- */
 export const schedulePickup = async (shipmentId) => {
   try {
-    const token = await getShiprocketToken();
-
-    const res = await axios.post(
-      "https://apiv2.shiprocket.in/v1/external/courier/generate/pickup",
-      { shipment_id: shipmentId },
-      { headers: { Authorization: `Bearer ${token}` } },
+    const res = await withShiprocketAuthRetry((token) =>
+      axios.post(
+        "https://apiv2.shiprocket.in/v1/external/courier/generate/pickup",
+        { shipment_id: shipmentId },
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
     );
 
     return res.data;
   } catch (err) {
-    throw new Error("Failed to schedule pickup");
+    const e = new Error("Failed to schedule pickup");
+    e.shiprocket = { stage: "pickup", response: err.response?.data, status: err.response?.status };
+    throw e;
   }
 };
 
@@ -375,16 +416,18 @@ export const schedulePickup = async (shipmentId) => {
 ---------------------------------------------------------- */
 export const trackShipment = async (awb) => {
   try {
-    const token = await getShiprocketToken();
-
-    const res = await axios.get(
-      `https://apiv2.shiprocket.in/v1/external/courier/track/awb/${awb}`,
-      { headers: { Authorization: `Bearer ${token}` } },
+    const res = await withShiprocketAuthRetry((token) =>
+      axios.get(
+        `https://apiv2.shiprocket.in/v1/external/courier/track/awb/${awb}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
     );
 
     return res.data;
   } catch (err) {
-    throw new Error("Failed to track shipment");
+    const e = new Error("Failed to track shipment");
+    e.shiprocket = { stage: "track", response: err.response?.data, status: err.response?.status };
+    throw e;
   }
 };
 
@@ -393,12 +436,12 @@ export const trackShipment = async (awb) => {
 ---------------------------------------------------------- */
 export const cancelShipment = async (shipmentId) => {
   try {
-    const token = await getShiprocketToken();
-
-    const res = await axios.post(
-      "https://apiv2.shiprocket.in/v1/external/orders/cancel/shipment",
-      { shipment_id: shipmentId },
-      { headers: { Authorization: `Bearer ${token}` } },
+    const res = await withShiprocketAuthRetry((token) =>
+      axios.post(
+        "https://apiv2.shiprocket.in/v1/external/orders/cancel/shipment",
+        { shipment_id: shipmentId },
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
     );
 
     return res.data;

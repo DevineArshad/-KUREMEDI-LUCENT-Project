@@ -1074,6 +1074,21 @@ const extractShiprocketErrorMessage = (payload) => {
   return "Shiprocket shipment creation failed";
 };
 
+const isShiprocketAccessError = (payload) => {
+  const status = Number(payload?.status || payload?.response?.status || 0);
+  const message = String(
+    payload?.message || payload?.response?.message || payload?.response?.error || ""
+  ).toLowerCase();
+
+  if (status === 401 || status === 403) return true;
+  return (
+    message.includes("access forbidden") ||
+    message.includes("unauthorized") ||
+    message.includes("permission") ||
+    message.includes("blocked")
+  );
+};
+
 const validateShiprocketPayload = (orderDoc) => {
   const addr = orderDoc?.shippingAddress || {};
   const issues = [];
@@ -1356,21 +1371,27 @@ export const updateOrderStatus = async (req, res) => {
           if (shipmentId) {
             order.shiprocketShipmentId = String(shipmentId);
           } else {
-            // If Shiprocket did not return a shipment id, surface the error to client
-            return res.status(400).json({
+            awbError = {
+              status: 400,
               message: explainShiprocketShipmentIssue(srRes),
-              shiprocketResponse: srRes,
-            });
+              response: srRes,
+            };
+            responseMessage = "Order status updated with logistics warning";
           }
         } catch (srErr) {
           const payload = srErr.shiprocket || srErr.response?.data || {
             message: srErr.message,
             status: srErr.response?.status,
           };
-          return res.status(400).json({
-            message: extractShiprocketErrorMessage(payload),
-            shiprocketError: payload,
-          });
+          if (isShiprocketAccessError(payload)) {
+            awbError = payload;
+            responseMessage = "Order status updated with logistics warning";
+          } else {
+            return res.status(400).json({
+              message: extractShiprocketErrorMessage(payload),
+              shiprocketError: payload,
+            });
+          }
         }
       }
 
@@ -1574,11 +1595,19 @@ export const updateOrderStatus = async (req, res) => {
     }
     if (awbError) {
       json.awbError = awbError;
-      const msg = typeof awbError === "object" && awbError?.response?.message;
-      const code = typeof awbError === "object" && awbError?.status;
+      const msg =
+        typeof awbError === "object" &&
+        (awbError?.response?.message || awbError?.message || "");
+      const code =
+        typeof awbError === "object" &&
+        Number(awbError?.status || awbError?.response?.status || 0);
       if (msg && /kyc|verification|complete your kyc/i.test(msg)) {
         json.awbMessage = "Complete KYC on Shiprocket to generate AWB. Log in to Shiprocket dashboard → complete KYC, then set this order to DISPATCHED again.";
-      } else if (code === 403 || (msg && /unauthorized|don't have permission/i.test(msg))) {
+      } else if (
+        code === 401 ||
+        code === 403 ||
+        (msg && /access forbidden|unauthorized|don't have permission|blocked/i.test(msg))
+      ) {
         json.awbMessage = "Shiprocket returned 403: Your account does not have permission to assign AWB. Complete KYC, check your plan at app.shiprocket.in, or contact Shiprocket support to enable 'Assign AWB' for your account.";
       }
     }
