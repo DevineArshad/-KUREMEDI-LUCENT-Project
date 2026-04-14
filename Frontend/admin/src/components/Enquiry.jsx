@@ -5,7 +5,7 @@ import { Trash2 } from "lucide-react"; // nice delete icon
 import { useContextApi } from "../hooks/useContextApi";
 import axios from "axios";
 import { toast } from "react-hot-toast";
-import { ADMIN_API_BASE_URL } from "../lib/baseUrl";
+import { API_BASE_URL } from "../config";
 
 const Enquiry = () => {
   const { getAllEnquiries } = useContextApi();
@@ -31,7 +31,7 @@ const Enquiry = () => {
   const handleDelete = async (id) => {
     if (!confirm("Are you sure you want to delete this enquiry?")) return;
     try {
-      const baseUrl = ADMIN_API_BASE_URL;
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
       const res = await axios.delete(`${baseUrl}/enquiry/delete/${id}`);
       if (res.data.success) {
         toast.success("Enquiry deleted successfully!");
