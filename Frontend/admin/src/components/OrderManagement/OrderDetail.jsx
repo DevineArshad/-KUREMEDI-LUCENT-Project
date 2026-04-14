@@ -39,7 +39,7 @@ const DEFAULT_ORDER = {
 /* ---------------- COMPONENT ---------------- */
 
 const OrderDetail = () => {
-    const { setActiveTab, selectedOrderId, getOrderById, updateOrderStatus } = useContextApi();
+    const { setActiveTab, selectedOrderId, getOrderById, updateOrderStatus, generateOrderAwb } = useContextApi();
 
     const [order, setOrder] = useState(DEFAULT_ORDER);
     const [loading, setLoading] = useState(false);
@@ -93,9 +93,15 @@ const OrderDetail = () => {
         if (!selectedOrderId || !updateOrderStatus) return;
         setUpdating(true);
         try {
-            await updateOrderStatus(selectedOrderId, "status", status);
+            const result = await updateOrderStatus(selectedOrderId, "status", status);
             setOrder((prev) => ({ ...prev, status }));
-            toast.success("Order status updated");
+            if (result?.awbMessage) {
+                toast(result.awbMessage);
+            } else if (result?.awbError) {
+                toast.error(result?.awbError?.message || "AWB generation failed");
+            } else {
+                toast.success("Order status updated");
+            }
             const res = await getOrderById(selectedOrderId);
             const orderData = res?.data;
             if (orderData) {
@@ -113,23 +119,18 @@ const OrderDetail = () => {
                     },
                 });
             }
-        } catch {
-            toast.error("Failed to update status");
+        } catch (error) {
+            toast.error(error?.response?.data?.message || "Failed to update status");
         } finally {
             setUpdating(false);
         }
     };
 
     const handleGenerateAwb = async () => {
-        if (!selectedOrderId || !updateOrderStatus || !order.shiprocketShipmentId) return;
+        if (!selectedOrderId || !generateOrderAwb) return;
         setUpdating(true);
         try {
-            // Clear old AWB first to allow fresh assignment when a wrong AWB was saved earlier.
-            if (order.shiprocketAwb) {
-                await updateOrderStatus(selectedOrderId, "shiprocketAwb", null);
-            }
-            // Re-send DISPATCHED to trigger AWB generation on backend when missing.
-            await updateOrderStatus(selectedOrderId, "status", "DISPATCHED");
+            const generated = await generateOrderAwb(selectedOrderId, Boolean(order.shiprocketAwb));
             const res = await getOrderById(selectedOrderId);
             const orderData = res?.data;
             if (orderData) {
@@ -147,13 +148,19 @@ const OrderDetail = () => {
                     },
                 });
             }
-            if (res?.data?.shiprocketAwb) {
+            if (generated?.shiprocket?.awb || res?.data?.shiprocketAwb) {
                 toast.success("AWB generated successfully");
+            } else if (Array.isArray(generated?.warnings) && generated.warnings.length > 0) {
+                toast("AWB generated with warnings. Check label/pickup status.");
             } else {
                 toast("AWB request sent. Refresh once more if not visible yet.");
             }
-        } catch {
-            toast.error("Failed to generate AWB");
+        } catch (error) {
+            const message =
+                error?.response?.data?.message ||
+                error?.response?.data?.shiprocketError?.message ||
+                "Failed to generate AWB";
+            toast.error(message);
         } finally {
             setUpdating(false);
         }
@@ -237,16 +244,14 @@ const OrderDetail = () => {
                             Tracking link appears after AWB is generated. Shipment ID cannot be tracked on AWB search.
                         </p>
                     )}
-                    {order.shiprocketShipmentId ? (
-                        <button
-                            type="button"
-                            onClick={handleGenerateAwb}
-                            disabled={updating}
-                            className="mt-2 inline-flex items-center rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
-                        >
-                            {updating ? "Generating..." : order.shiprocketAwb ? "Regenerate AWB" : "Generate AWB"}
-                        </button>
-                    ) : null}
+                    <button
+                        type="button"
+                        onClick={handleGenerateAwb}
+                        disabled={updating}
+                        className="mt-2 inline-flex items-center rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+                    >
+                        {updating ? "Generating..." : order.shiprocketAwb ? "Regenerate AWB" : "Generate AWB"}
+                    </button>
                     {order.shiprocketLabelUrl ? (
                         <a
                             href={order.shiprocketLabelUrl}

@@ -1,6 +1,6 @@
 # Nginx snippet for api.kuremedi.com (or your API server block).
 # Request entity size limits for file uploads:
-# - Product images (up to 6 files, ~50MB total): need ~50M limit
+# - Product images (up to 6 files, 10MB each, 60MB total): need 60M limit
 # - KYC uploads (multipart/form-data): can be > 1MB, so increase to 20M minimum
 # - Default nginx limit is 1m, which causes 413 "Request Entity Too Large" errors
 #
@@ -8,10 +8,10 @@
 # 1. Include this inside your server { } block for api.kuremedi.com, e.g.:
 #    include /path/to/backend/nginx-api.conf.example;
 # 2. Or add this single line inside the server { } block:
-#    client_max_body_size 50M;
+#    client_max_body_size 60M;
 # 3. Reload nginx: sudo nginx -t && sudo systemctl reload nginx
 
-client_max_body_size 50M;
+client_max_body_size 60M;
 
 # CORS headers should be sent even on 4xx/5xx so browser doesn't surface generic "Network Error".
 # Replace origin value if you also use other admin domains.

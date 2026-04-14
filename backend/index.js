@@ -116,10 +116,10 @@ app.use("/api/marketing", marketingRoutes);
 // Error handler – must have 4 args
 app.use((err, req, res, next) => {
   if (err?.type === "entity.too.large" || err?.status === 413) {
-    return res.status(413).json({ message: "Payload too large. Please upload smaller images." });
+    return res.status(413).json({ message: "Payload too large. Each image can be up to 5MB." });
   }
   if (err?.code === "LIMIT_FILE_SIZE") {
-    return res.status(413).json({ message: "One or more images exceed the allowed file size (50MB per image)." });
+    return res.status(413).json({ message: "One or more images exceed the allowed file size (5MB per image)." });
   }
   if (err?.code === "LIMIT_FILE_COUNT") {
     return res.status(400).json({ message: "Too many files uploaded. Maximum 6 product images are allowed." });

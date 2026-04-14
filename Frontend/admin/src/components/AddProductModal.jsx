@@ -11,6 +11,10 @@ const getProductImageUrl = (path) => {
 };
 
 const MAX_PRODUCT_IMAGES = 6;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const COMPRESS_MIN_BYTES = 2 * 1024 * 1024;
+const MAX_IMAGE_DIMENSION = 1920;
+const COMPRESS_QUALITY = 0.82;
 const ALLOWED_IMAGE_MIME = [
     "image/jpeg",
     "image/jpg",
@@ -38,6 +42,86 @@ const AddProductModal = ({ onClose, onSuccess, productId, product }) => {
     const [imagePreviews, setImagePreviews] = useState([]);
     const [errorMsg, setErrorMsg] = useState("");
     const [successMsg, setSuccessMsg] = useState("");
+
+    const toMb = (bytes = 0) => (Number(bytes || 0) / (1024 * 1024)).toFixed(1);
+
+    const shouldCompressFile = (file) => {
+        const type = String(file?.type || "").toLowerCase();
+        const compressible = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+        return Number(file?.size || 0) >= COMPRESS_MIN_BYTES && compressible.includes(type);
+    };
+
+    const compressImageFile = (file) =>
+        new Promise((resolve) => {
+            if (!shouldCompressFile(file)) {
+                resolve(file);
+                return;
+            }
+
+            const img = new Image();
+            const objectUrl = URL.createObjectURL(file);
+
+            img.onload = () => {
+                try {
+                    const width = Number(img.width || 0);
+                    const height = Number(img.height || 0);
+                    if (!width || !height) {
+                        URL.revokeObjectURL(objectUrl);
+                        resolve(file);
+                        return;
+                    }
+
+                    const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(width, height));
+                    const targetWidth = Math.max(1, Math.round(width * scale));
+                    const targetHeight = Math.max(1, Math.round(height * scale));
+
+                    const canvas = document.createElement("canvas");
+                    canvas.width = targetWidth;
+                    canvas.height = targetHeight;
+                    const ctx = canvas.getContext("2d");
+                    if (!ctx) {
+                        URL.revokeObjectURL(objectUrl);
+                        resolve(file);
+                        return;
+                    }
+
+                    ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+
+                    const normalizedType = String(file.type || "").toLowerCase();
+                    const outType = normalizedType === "image/png" ? "image/jpeg" : normalizedType;
+
+                    canvas.toBlob(
+                        (blob) => {
+                            URL.revokeObjectURL(objectUrl);
+                            if (!blob || blob.size >= file.size) {
+                                resolve(file);
+                                return;
+                            }
+                            const nextName = outType === "image/jpeg"
+                                ? String(file.name || "image").replace(/\.(png|webp)$/i, ".jpg")
+                                : file.name;
+                            const compressed = new File([blob], nextName, {
+                                type: outType,
+                                lastModified: Date.now(),
+                            });
+                            resolve(compressed);
+                        },
+                        outType,
+                        COMPRESS_QUALITY
+                    );
+                } catch {
+                    URL.revokeObjectURL(objectUrl);
+                    resolve(file);
+                }
+            };
+
+            img.onerror = () => {
+                URL.revokeObjectURL(objectUrl);
+                resolve(file);
+            };
+
+            img.src = objectUrl;
+        });
 
     const [formData, setFormData] = useState({
         productName: "",
@@ -183,25 +267,53 @@ const AddProductModal = ({ onClose, onSuccess, productId, product }) => {
         });
     };
 
-    const handleImageUpload = (e) => {
+    const handleImageUpload = async (e) => {
         const files = Array.from(e.target.files || []);
         if (files.length === 0) return;
 
-        const invalidType = files.find((file) => !ALLOWED_IMAGE_MIME.includes(String(file.type || "").toLowerCase()));
-        if (invalidType) {
-            setErrorMsg("Unsupported image format. Use JPG, PNG, WEBP, GIF, HEIC, or HEIF.");
+        const processedFiles = await Promise.all(files.map((file) => compressImageFile(file)));
+
+        const invalidTypeFiles = processedFiles.filter(
+            (file) => !ALLOWED_IMAGE_MIME.includes(String(file.type || "").toLowerCase())
+        );
+        const typeValidFiles = processedFiles.filter(
+            (file) => ALLOWED_IMAGE_MIME.includes(String(file.type || "").toLowerCase())
+        );
+
+        const oversizedFiles = typeValidFiles.filter((file) => Number(file?.size || 0) > MAX_IMAGE_BYTES);
+        const sizeValidFiles = typeValidFiles.filter((file) => Number(file?.size || 0) <= MAX_IMAGE_BYTES);
+
+        const availableSlots = Math.max(0, MAX_PRODUCT_IMAGES - imagePreviews.length);
+        const slotCappedFiles = sizeValidFiles.slice(0, availableSlots);
+        const skippedBySlots = Math.max(0, sizeValidFiles.length - slotCappedFiles.length);
+
+        const acceptedFiles = [];
+        acceptedFiles.push(...slotCappedFiles);
+
+        const warnings = [];
+        if (invalidTypeFiles.length) {
+            warnings.push(`Skipped ${invalidTypeFiles.length} file(s): unsupported format (use JPG, PNG, WEBP, GIF, HEIC, HEIF).`);
+        }
+        if (oversizedFiles.length) {
+            const names = oversizedFiles
+                .slice(0, 2)
+                .map((file) => `${file.name || "file"} (${toMb(file.size)}MB)`)
+                .join(", ");
+            warnings.push(`Skipped ${oversizedFiles.length} file(s): each image can be up to 5MB (${names}${oversizedFiles.length > 2 ? ", ..." : ""}).`);
+        }
+        if (skippedBySlots > 0) {
+            warnings.push(`Skipped ${skippedBySlots} file(s): maximum ${MAX_PRODUCT_IMAGES} images allowed.`);
+        }
+
+        if (acceptedFiles.length === 0) {
+            setErrorMsg(warnings.join("\n") || "No valid images were selected.");
             e.target.value = "";
             return;
         }
 
-        const total = imagePreviews.length + files.length;
-        if (total > MAX_PRODUCT_IMAGES) {
-            setErrorMsg(`Maximum ${MAX_PRODUCT_IMAGES} images allowed.`);
-            return;
-        }
-        setErrorMsg("");
-        const newPreviews = files.map((f) => URL.createObjectURL(f));
-        setImageFiles((prev) => [...prev, ...files]);
+        setErrorMsg(warnings.join("\n"));
+        const newPreviews = acceptedFiles.map((f) => URL.createObjectURL(f));
+        setImageFiles((prev) => [...prev, ...acceptedFiles]);
         setImagePreviews((prev) => [...prev, ...newPreviews]);
         e.target.value = "";
     };
@@ -267,6 +379,10 @@ const AddProductModal = ({ onClose, onSuccess, productId, product }) => {
         const errs = [];
         if (!productName) errs.push("Product name is required.");
         if (!productId && (!imageFiles?.length)) errs.push("At least one product image is required.");
+        const oversizedAtSubmit = imageFiles.filter((file) => Number(file?.size || 0) > MAX_IMAGE_BYTES);
+        if (oversizedAtSubmit.length > 0) {
+            errs.push("Each image can be up to 10MB.");
+        }
         if (category === "" || !category) errs.push("Category is required.");
         if (brand === "" || !brand) errs.push("Brand is required.");
         if (sellingPrice === undefined || sellingPrice === "" || isNaN(sellingPrice) || sellingPrice < 0)
@@ -298,12 +414,14 @@ const AddProductModal = ({ onClose, onSuccess, productId, product }) => {
                 onClose();
             }, 1000);
         } catch (error) {
-            const errorMessage = getErrorMessage(error);
-            if (/network error/i.test(errorMessage)) {
-                setErrorMsg("Upload failed. Check internet and image size, then try again.");
-            } else {
-                setErrorMsg(errorMessage);
-            }
+            const errorMessage = getErrorMessage(error, {
+                isUpload: true,
+                operation: productId ? "update product upload" : "create product upload",
+                files: imageFiles,
+                maxImageBytes: MAX_IMAGE_BYTES,
+                triedHosts: error?.triedHosts,
+            });
+            setErrorMsg(errorMessage);
             logError("Product submission", error);
         } finally {
             setLoading(false);

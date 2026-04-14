@@ -5,6 +5,91 @@ import { ADMIN_API_BASE_URL, ADMIN_UPLOAD_BASE_URL } from "../lib/baseUrl";
 import { getErrorMessage } from "../utils/errorHandler";
 
 const BASE_URL = ADMIN_API_BASE_URL;
+const PRODUCT_UPLOAD_TIMEOUT_MS = 90000;
+const GENERAL_API_BASE_CANDIDATES = Array.from(
+  new Set([BASE_URL, "https://backend.kuremedi.com/api", "https://api.kuremedi.com/api"])
+);
+const PRODUCT_UPLOAD_BASE_CANDIDATES = Array.from(
+  new Set([BASE_URL, "https://backend.kuremedi.com/api"])
+);
+
+const shouldRetryUploadOnAlternateHost = (error) => {
+  if (error?.response) return false;
+  const code = String(error?.code || "").toUpperCase();
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    code === "ERR_NETWORK" ||
+    code === "ECONNABORTED" ||
+    message.includes("network") ||
+    message.includes("timeout")
+  );
+};
+
+const buildProductUploadUrl = (base, id) =>
+  id ? `${base}/products/${id}` : `${base}/products`;
+
+const requestGetWithFallback = async (path) => {
+  let lastError = null;
+
+  for (let index = 0; index < GENERAL_API_BASE_CANDIDATES.length; index += 1) {
+    const base = GENERAL_API_BASE_CANDIDATES[index];
+    try {
+      return await axios.get(`${base}${path}`);
+    } catch (error) {
+      lastError = error;
+      const isLastCandidate = index === GENERAL_API_BASE_CANDIDATES.length - 1;
+      if (isLastCandidate || !shouldRetryUploadOnAlternateHost(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError || new Error("Request failed");
+};
+
+const requestProductUploadWithFallback = async ({ method, id, formData }) => {
+  let lastError = null;
+  const triedHosts = [];
+
+  for (let index = 0; index < PRODUCT_UPLOAD_BASE_CANDIDATES.length; index += 1) {
+    const base = PRODUCT_UPLOAD_BASE_CANDIDATES[index];
+    triedHosts.push(base);
+    try {
+      const response = await axios({
+        method,
+        url: buildProductUploadUrl(base, id),
+        data: formData,
+        timeout: PRODUCT_UPLOAD_TIMEOUT_MS,
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      return response.data;
+    } catch (error) {
+      error.triedHosts = triedHosts.slice();
+      lastError = error;
+      const isLastCandidate = index === PRODUCT_UPLOAD_BASE_CANDIDATES.length - 1;
+      if (isLastCandidate || !shouldRetryUploadOnAlternateHost(error)) {
+        throw error;
+      }
+    }
+  }
+
+  if (lastError) {
+    lastError.triedHosts = triedHosts.slice();
+    throw lastError;
+  }
+
+  const fallbackError = new Error("Product upload failed");
+  fallbackError.triedHosts = triedHosts.slice();
+  throw fallbackError;
+};
+
+const normalizeOrderStatus = (status) => {
+  const raw = String(status || "").trim().toUpperCase();
+  if (!raw) return raw;
+  if (raw === "SHIPPED") return "DISPATCHED";
+  if (raw === "PROCESSING") return "CONFIRMED";
+  return raw;
+};
 
 // Attach interceptor once to normalize axios errors across the admin app.
 let adminAxiosInterceptorAttached = false;
@@ -14,11 +99,9 @@ if (!adminAxiosInterceptorAttached) {
     (response) => response,
     (error) => {
       const friendly = getErrorMessage(error);
-      if (!error.response) {
-        error.response = { data: { message: friendly } };
-      } else if (!error.response.data) {
+      if (error.response && !error.response.data) {
         error.response.data = { message: friendly };
-      } else if (!error.response.data.message) {
+      } else if (error.response?.data && !error.response.data.message) {
         error.response.data.message = friendly;
       }
       error.userMessage = friendly;
@@ -47,7 +130,7 @@ export const ContextProvider = ({ children }) => {
 
   const GetCategoryData = async () => {
     try {
-      const response = await axios.get(`${BASE_URL}/categories`);
+      const response = await requestGetWithFallback("/categories");
       return response.data; // { success, data }
     } catch (error) {
       console.error("Error fetching categories:", error);
@@ -283,8 +366,10 @@ export const ContextProvider = ({ children }) => {
 
   const createProductWithFormData = async (formData) => {
     try {
-      const response = await axios.post(`${BASE_URL}/products`, formData);
-      return response.data;
+      return await requestProductUploadWithFallback({
+        method: "post",
+        formData,
+      });
     } catch (error) {
       console.error("❌ Error creating product:", error.response?.data || error);
       throw error;
@@ -293,8 +378,11 @@ export const ContextProvider = ({ children }) => {
 
   const updateProductWithFormData = async (id, formData) => {
     try {
-      const response = await axios.put(`${BASE_URL}/products/${id}`, formData);
-      return response.data;
+      return await requestProductUploadWithFallback({
+        method: "put",
+        id,
+        formData,
+      });
     } catch (error) {
       console.error("❌ Error updating product:", error.response?.data || error);
       throw error;
@@ -349,14 +437,29 @@ export const ContextProvider = ({ children }) => {
   };
   const updateOrderStatus = async (orderId, field, value) => {
     try {
+      const normalizedValue = field === "status" ? normalizeOrderStatus(value) : value;
       // dynamically assign the field to update
-      const payload = { orderId, [field]: value };
+      const payload = { orderId, [field]: normalizedValue };
 
       const response = await axios.put(`${BASE_URL}/payment/update-status`, payload);
       console.log("✅ Order status updated:", response.data);
       return response.data;
     } catch (error) {
-      console.error("❌ Error updating order status:", error);
+      console.error("❌ Error updating order status:", error.response?.data || error);
+      throw error;
+    }
+  };
+
+  const generateOrderAwb = async (orderId, force = false) => {
+    try {
+      const response = await axios.post(
+        `${BASE_URL}/payment/orders/${orderId}/shiprocket/generate-awb`,
+        { force }
+      );
+      return response.data;
+    } catch (error) {
+      console.error("❌ Error generating AWB:", error.response?.data || error);
+      throw error;
     }
   };
 
@@ -793,7 +896,7 @@ export const ContextProvider = ({ children }) => {
   // Brand APIs
   const getBrands = async () => {
     try {
-      const response = await axios.get(`${BASE_URL}/brands`);
+      const response = await requestGetWithFallback("/brands");
       return response.data; // { success, data }
     } catch (error) {
       console.error("❌ Error fetching brands:", error.response?.data || error);
@@ -1186,7 +1289,7 @@ export const ContextProvider = ({ children }) => {
         updateKYCStatus,
         updateBlog, getAllUsers, deleteUser, blockUser, getDeletedUsersHistory, kycStatusUpdate, updateUserKYCStatus,
         changeAdminPassword, verifyAdminSecurityPassword, getAdminSecurityQuestions, updateAdminSecurityQuestions, requestAdminEmailChangeOldOtp, verifyAdminEmailChangeOldOtp, verifyAdminEmailChangeNewOtp, getMyProfile, getAdminUsers, createAdminUser, deleteAdminUser,
-        deleteBlog, fetchblogCategories, addblogCategory, updateblogCategory, deleteblogCategory, enquiries, addEnquiry, updateEnquiry, deleteEnquiry, fetchEnquiries, user, login, getallOrders, createProducts, createProductWithFormData, updateProductWithFormData, updateProducts, deleteProducts, bulkImportProducts, deletesubcategory, createsubcategory, updatesubcategory, updateOrderStatus, getAllEnquiries, logout, activeTab, setActiveTab, GetSubCategoryData, GetCategoryData, AddCategoryData, createCategoryWithFormData, updateCategoryWithFormData, uploadImage, UpdateCategoryData, DeleteCategory, getBrands, createBrand, createBrandWithFormData, updateBrand, updateBrandWithFormData, deleteBrand, getReferralAmount, setReferralAmount, getReferralRewards, setReferralRewards,
+        deleteBlog, fetchblogCategories, addblogCategory, updateblogCategory, deleteblogCategory, enquiries, addEnquiry, updateEnquiry, deleteEnquiry, fetchEnquiries, user, login, getallOrders, createProducts, createProductWithFormData, updateProductWithFormData, updateProducts, deleteProducts, bulkImportProducts, deletesubcategory, createsubcategory, updatesubcategory, updateOrderStatus, generateOrderAwb, getAllEnquiries, logout, activeTab, setActiveTab, GetSubCategoryData, GetCategoryData, AddCategoryData, createCategoryWithFormData, updateCategoryWithFormData, uploadImage, UpdateCategoryData, DeleteCategory, getBrands, createBrand, createBrandWithFormData, updateBrand, updateBrandWithFormData, deleteBrand, getReferralAmount, setReferralAmount, getReferralRewards, setReferralRewards,
         getAgents, getAgentById, createAgent, updateAgent, deleteAgent, updateAgentKycStatus, getUploadBaseUrl, getReferralsTracking, reprocessReferralReward,
         getMarketingBanners, createMarketingBanner, updateMarketingBanner, deleteMarketingBanner,
         getSupportTickets, getSupportTicketById, replySupportTicket, updateSupportTicketStatus, addSupportCallNote, updateSupportTicketNotes, initiateSupportCall,

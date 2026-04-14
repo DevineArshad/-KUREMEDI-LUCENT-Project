@@ -4,6 +4,7 @@ import { requireKycApproved } from "../middleware/authorize.js";
 import Order from "../model/Order.js";
 import {
   createPaymentOrder,
+  generateOrderAwb,
   getPaymentStatus,
   handleRazorpayWebhook,
   verifyPayment,
@@ -129,6 +130,7 @@ router.get("/orders/:orderId", async (req, res) => {
  * Body: { orderId, status } or { orderId, [field]: value }
  */
 router.put("/update-status", updateOrderStatus);
+router.post("/orders/:orderId/shiprocket/generate-awb", generateOrderAwb);
 
 // ============ USER (protected) ============
 

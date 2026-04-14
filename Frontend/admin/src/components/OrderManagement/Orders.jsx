@@ -120,11 +120,17 @@ const Orders = () => {
     console.log("orderId", orderId);
     setUpdatingId(orderId);
     try {
-      await updateOrderStatus(orderId, "status", newStatus);
-      toast.success("Status updated");
+      const result = await updateOrderStatus(orderId, "status", newStatus);
+      if (result?.awbMessage) {
+        toast(result.awbMessage);
+      } else if (result?.awbError) {
+        toast.error(result?.awbError?.message || "AWB generation failed");
+      } else {
+        toast.success("Status updated");
+      }
       await fetchOrders();
-    } catch {
-      toast.error("Failed to update status");
+    } catch (error) {
+      toast.error(error?.response?.data?.message || "Failed to update status");
     } finally {
       setUpdatingId(null);
     }

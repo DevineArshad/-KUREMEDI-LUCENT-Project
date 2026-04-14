@@ -3,8 +3,55 @@
  * Extracts meaningful error messages from various error types
  */
 
-export const getErrorMessage = (error) => {
+const formatBytes = (bytes) => {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+};
+
+const isLikelyUploadRequest = (error, context = {}) => {
+  const method = String(error?.config?.method || "").toLowerCase();
+  const url = String(error?.config?.url || "").toLowerCase();
+  const operation = String(context?.operation || "").toLowerCase();
+
+  return (
+    context?.isUpload === true ||
+    operation.includes("upload") ||
+    (url.includes("/products") && ["post", "put", "patch"].includes(method))
+  );
+};
+
+const buildUploadNetworkMessage = (context = {}) => {
+  const files = Array.isArray(context?.files) ? context.files : [];
+  const maxImageBytes = Number(context?.maxImageBytes || 0);
+  const hasAnyOversized =
+    maxImageBytes > 0 && files.some((file) => Number(file?.size || 0) > maxImageBytes);
+  const fileCount = files.length;
+  const detailsText = fileCount > 0 ? ` (${fileCount} image${fileCount > 1 ? "s" : ""})` : "";
+
+  if (hasAnyOversized) {
+    return `Upload blocked${detailsText}. Please upload images up to 5 MB each.`;
+  }
+  return `Upload failed${detailsText}. Please upload images up to 5 MB each and try again.`;
+};
+
+export const getErrorMessage = (error, context = {}) => {
   if (!error) return "An unknown error occurred";
+
+  // Handle upload-specific transport errors before reading any injected response message.
+  if (isLikelyUploadRequest(error, context) && error.code === "ECONNABORTED") {
+    return "Upload timed out. Please upload images up to 5 MB each and try again.";
+  }
+
+  if ((error.code === "ERR_NETWORK" || !error.response) && isLikelyUploadRequest(error, context)) {
+    return buildUploadNetworkMessage(context);
+  }
 
   // If error has response (from Axios)
   if (error.response?.data) {
@@ -13,6 +60,11 @@ export const getErrorMessage = (error) => {
     // Check for message field
     if (data.message) {
       return String(data.message);
+    }
+
+    // Common nested API error shapes
+    if (data.error?.message) {
+      return String(data.error.message);
     }
 
     // Check for success: false with msg
@@ -69,7 +121,7 @@ export const getErrorMessage = (error) => {
   }
 
   if (error.message?.includes("Network") || error.message?.includes("network")) {
-    return "Network or CORS Error: Could not reach API server. Check internet, API domain, and upload size limits.";
+    return "Network request failed. Check internet connectivity and API availability, then try again.";
   }
 
   // Custom error message

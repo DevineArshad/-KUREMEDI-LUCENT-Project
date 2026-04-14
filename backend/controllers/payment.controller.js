@@ -940,6 +940,233 @@ export const getPaymentStatus = async (req, res) => {
   }
 };
 
+const getShipmentIdFromShiprocketResponse = (srRes) => {
+  const candidates = [
+    srRes?.shipment_id,
+    srRes?.shipmentId,
+    srRes?.data?.shipment_id,
+    srRes?.data?.shipmentId,
+    srRes?.response?.shipment_id,
+    srRes?.response?.shipmentId,
+    srRes?.shipments?.[0]?.id,
+    srRes?.shipments?.[0]?.shipment_id,
+    srRes?.data?.shipments?.[0]?.id,
+    srRes?.data?.shipments?.[0]?.shipment_id,
+    srRes?.response?.data?.shipments?.[0]?.id,
+    srRes?.response?.data?.shipments?.[0]?.shipment_id,
+  ];
+
+  for (const value of candidates) {
+    if (value == null) continue;
+    if (Array.isArray(value)) {
+      const first = value.find((item) => item != null && String(item).trim());
+      if (first != null) return String(first).trim();
+      continue;
+    }
+    const text = String(value).trim();
+    if (text) return text;
+  }
+
+  return null;
+};
+
+const explainShiprocketShipmentIssue = (srRes) => {
+  const message =
+    srRes?.message ||
+    srRes?.error ||
+    srRes?.data?.message ||
+    srRes?.response?.message ||
+    srRes?.response?.data?.message ||
+    srRes?.errors?.[0]?.message ||
+    srRes?.data?.errors?.[0]?.message;
+
+  const cleanMessage = String(message || "").trim();
+  if (!cleanMessage) {
+    return "Shiprocket did not return shipment_id. Check pickup location, shipping address, pincode, and credentials.";
+  }
+
+  return `Shiprocket did not return shipment_id: ${cleanMessage}`;
+};
+
+const readAwbFromKnownKeys = (payload) => {
+  const direct = [
+    payload?.awb_code,
+    payload?.awb,
+    payload?.awbCode,
+    payload?.awb_number,
+    payload?.data?.awb_code,
+    payload?.data?.awb,
+    payload?.data?.awbCode,
+    payload?.data?.awb_number,
+    payload?.data?.awb_assignments?.[0]?.awb_code,
+    payload?.data?.awb_assignement_details?.[0]?.awb,
+    payload?.response?.awb_code,
+    payload?.response?.awb,
+    payload?.response?.awbCode,
+    payload?.response?.awb_number,
+    payload?.response?.data?.awb_code,
+    payload?.response?.data?.awb,
+    payload?.response?.data?.awbCode,
+    payload?.response?.data?.awb_number,
+    payload?.response?.data?.awb_assignments?.[0]?.awb_code,
+    payload?.response?.data?.awb_assignement_details?.[0]?.awb,
+  ].find((v) => typeof v === "string" || typeof v === "number");
+  if (direct != null && String(direct).trim()) return String(direct).trim();
+
+  const scan = (node) => {
+    if (!node || typeof node !== "object") return null;
+    for (const [key, value] of Object.entries(node)) {
+      if (key.toLowerCase().includes("awb") && (typeof value === "string" || typeof value === "number")) {
+        const text = String(value).trim();
+        if (text) return text;
+      }
+      if (value && typeof value === "object") {
+        const nested = scan(value);
+        if (nested) return nested;
+      }
+    }
+    return null;
+  };
+
+  return scan(payload);
+};
+
+const ensureShiprocketShipment = async (order) => {
+  if (order.shiprocketShipmentId) {
+    return String(order.shiprocketShipmentId).split(",")[0].trim();
+  }
+
+  const orderWithUser = await Order.findById(order._id).populate("user", "name email phone");
+  const forShiprocket = mapOrderToShiprocketPayload(orderWithUser);
+  const srRes = await createShiprocketOrder(forShiprocket);
+  const shipmentId = getShipmentIdFromShiprocketResponse(srRes);
+
+  if (!shipmentId) {
+    return null;
+  }
+
+  order.shiprocketShipmentId = String(shipmentId);
+  await order.save();
+  return String(shipmentId);
+};
+
+/**
+ * MANUAL SHIPROCKET RECOVERY (Admin)
+ * POST /api/payment/orders/:orderId/shiprocket/generate-awb
+ * Optional body: { force: true } to regenerate even when AWB exists
+ */
+export const generateOrderAwb = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const force = Boolean(req.body?.force);
+
+    if (!orderId) {
+      return res.status(400).json({ message: "orderId is required" });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    if (order.shiprocketAwb && !force) {
+      return res.json({
+        message: "AWB already exists for this order",
+        order,
+        shiprocket: {
+          shipmentId: order.shiprocketShipmentId || null,
+          awb: order.shiprocketAwb || null,
+          labelUrl: order.shiprocketLabelUrl || null,
+          trackingUrl: order.trackingUrl || null,
+        },
+      });
+    }
+
+    let shipmentId;
+    try {
+      shipmentId = await ensureShiprocketShipment(order);
+      if (!shipmentId) {
+        return res.status(400).json({
+          message: explainShiprocketShipmentIssue(null),
+        });
+      }
+    } catch (srErr) {
+      const payload = srErr.shiprocket || srErr.response?.data || { message: srErr.message };
+      return res.status(400).json({
+        message: "Failed to create Shiprocket shipment",
+        shiprocketError: payload,
+      });
+    }
+
+    let awbRes;
+    try {
+      awbRes = await generateAWB(shipmentId);
+    } catch (awbErr) {
+      const payload = awbErr.shiprocket || awbErr.response?.data || { message: awbErr.message };
+      return res.status(400).json({
+        message: "Failed to generate AWB",
+        shiprocketError: payload,
+      });
+    }
+
+    const awbCode = readAwbFromKnownKeys(awbRes);
+    if (!awbCode) {
+      return res.status(400).json({
+        message: "Shiprocket did not return a valid AWB code for this shipment.",
+        shiprocketResponse: awbRes,
+      });
+    }
+
+    order.shiprocketAwb = String(awbCode);
+    order.trackingUrl =
+      awbRes?.tracking_url ??
+      awbRes?.tracking ??
+      awbRes?.data?.tracking_url ??
+      awbRes?.response?.tracking_url ??
+      awbRes?.response?.data?.tracking_url ??
+      awbRes?.tracking_url_short ??
+      `https://shiprocket.co/tracking/${encodeURIComponent(awbCode)}`;
+
+    const warnings = [];
+    try {
+      const labelRes = await generateLabel(shipmentId);
+      if (labelRes?.label_url) {
+        order.shiprocketLabelUrl = labelRes.label_url;
+      }
+    } catch (labelErr) {
+      warnings.push({ stage: "label", message: labelErr.message });
+    }
+
+    try {
+      await generateManifest(shipmentId);
+    } catch (manifestErr) {
+      warnings.push({ stage: "manifest", message: manifestErr.message });
+    }
+
+    try {
+      await schedulePickup(shipmentId);
+    } catch (pickupErr) {
+      warnings.push({ stage: "pickup", message: pickupErr.message });
+    }
+
+    await order.save();
+
+    return res.json({
+      message: "AWB generated successfully",
+      order,
+      shiprocket: {
+        shipmentId: order.shiprocketShipmentId || null,
+        awb: order.shiprocketAwb || null,
+        labelUrl: order.shiprocketLabelUrl || null,
+        trackingUrl: order.trackingUrl || null,
+      },
+      warnings,
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
 /**
  * UPDATE ORDER STATUS (Admin)
  * PUT /api/payment/update-status
@@ -976,16 +1203,13 @@ export const updateOrderStatus = async (req, res) => {
           );
           const forShiprocket = mapOrderToShiprocketPayload(orderWithUser);
           const srRes = await createShiprocketOrder(forShiprocket);
-          const shipmentId =
-            srRes?.shipment_id ??
-            srRes?.shipments?.[0]?.id ??
-            srRes?.shipments?.[0]?.shipment_id;
+          const shipmentId = getShipmentIdFromShiprocketResponse(srRes);
           if (shipmentId) {
             order.shiprocketShipmentId = String(shipmentId);
           } else {
             // If Shiprocket did not return a shipment id, surface the error to client
             return res.status(400).json({
-              message: "Shiprocket did not return shipment_id. Check address and credentials.",
+              message: explainShiprocketShipmentIssue(srRes),
               shiprocketResponse: srRes,
             });
           }
@@ -1008,50 +1232,6 @@ export const updateOrderStatus = async (req, res) => {
           const normalizedShipmentId = String(order.shiprocketShipmentId).split(",")[0].trim();
           let awbRes = await generateAWB(normalizedShipmentId);
           if (Array.isArray(awbRes) && awbRes.length) awbRes = awbRes[0];
-
-          const readAwbFromKnownKeys = (payload) => {
-            const direct = [
-              payload?.awb_code,
-              payload?.awb,
-              payload?.awbCode,
-              payload?.awb_number,
-              payload?.data?.awb_code,
-              payload?.data?.awb,
-              payload?.data?.awbCode,
-              payload?.data?.awb_number,
-              payload?.data?.awb_assignments?.[0]?.awb_code,
-              payload?.data?.awb_assignement_details?.[0]?.awb,
-              payload?.response?.awb_code,
-              payload?.response?.awb,
-              payload?.response?.awbCode,
-              payload?.response?.awb_number,
-              payload?.response?.data?.awb_code,
-              payload?.response?.data?.awb,
-              payload?.response?.data?.awbCode,
-              payload?.response?.data?.awb_number,
-              payload?.response?.data?.awb_assignments?.[0]?.awb_code,
-              payload?.response?.data?.awb_assignement_details?.[0]?.awb,
-            ].find((v) => typeof v === "string" || typeof v === "number");
-            if (direct != null && String(direct).trim()) return String(direct).trim();
-
-            // Safety: only pick nested values whose key name explicitly includes "awb".
-            const scan = (node) => {
-              if (!node || typeof node !== "object") return null;
-              for (const [key, value] of Object.entries(node)) {
-                if (key.toLowerCase().includes("awb") && (typeof value === "string" || typeof value === "number")) {
-                  const text = String(value).trim();
-                  if (text) return text;
-                }
-                if (value && typeof value === "object") {
-                  const nested = scan(value);
-                  if (nested) return nested;
-                }
-              }
-              return null;
-            };
-
-            return scan(payload);
-          };
 
           const awbCode = readAwbFromKnownKeys(awbRes);
           if (awbCode) {
