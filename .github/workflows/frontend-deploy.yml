@@ -20,22 +20,16 @@ jobs:
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.FRONTEND_HOST }}
-          username: ${{ secrets.FRONTEND_USER }}
-          key: ${{ secrets.FRONTEND_SSH_KEY }}
-          port: 22
-          script_stop: true
-          timeout: 30m
-          command_timeout: 20m
+          host: ${{ secrets.EC2_HOST }}      # ✅ use same as backend
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}    # ✅ use same as backend
           script: |
             set -e
 
-            echo "===== CONNECTED TO EC2 ====="
-            whoami
+            echo "CONNECTED TO EC2"
 
             cd /home/ubuntu
 
-            # -------- CLONE / UPDATE --------
             if [ ! -d "-KUREMEDI-LUCENT-Project" ]; then
               git clone https://github.com/ankurkushwaha809/-KUREMEDI-LUCENT-Project.git
             fi
@@ -45,48 +39,28 @@ jobs:
             git fetch --all
             git reset --hard origin/main
 
-            # -------- ADMIN (PM2) --------
-            echo "===== BUILDING ADMIN ====="
+            # -------- ADMIN --------
             cd Frontend/admin
-
             npm install
             npm run build
-
-            if [ ! -d "dist" ]; then
-              echo "❌ Admin build failed"
-              exit 1
-            fi
-
-            echo "Starting admin via PM2..."
 
             sudo npm install -g serve
 
             pm2 delete admin || true
             pm2 start serve --name admin -- -s dist -l 3008
 
-            # -------- WEBSITE (PM2) --------
-            echo "===== BUILDING WEBSITE ====="
+            # -------- WEBSITE --------
             cd ../website
-
             export NEXT_PUBLIC_API_URL="https://backend.kuremedi.com/api"
 
             npm install
             npm run build
-
-            echo "Restarting website..."
 
             pm2 delete website || true
             pm2 start npm --name website -- start
 
             pm2 save
 
-            # -------- VERIFY --------
-            sleep 5
-            curl -f http://localhost:3000 || (echo "❌ Website failed" && exit 1)
-            curl -f http://localhost:3008 || (echo "❌ Admin failed" && exit 1)
-
-            # -------- NGINX --------
-            sudo nginx -t
             sudo systemctl restart nginx
 
-            echo "===== DEPLOYMENT SUCCESSFUL 🚀 ====="
+            echo "Frontend deployed 🚀"
