@@ -41,6 +41,7 @@ jobs:
 
             # -------- ADMIN --------
             cd Frontend/admin
+            export VITE_APP_BASE="${{ secrets.ADMIN_BASE_PATH || '/' }}"
             npm install
             npm run build
 
