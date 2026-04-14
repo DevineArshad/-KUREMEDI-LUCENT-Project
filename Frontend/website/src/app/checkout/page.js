@@ -86,6 +86,7 @@ export default function CheckoutPage() {
   const [paymentModal, setPaymentModal] = useState(null);
   const [minimumCheckoutAmount, setMinimumCheckoutAmount] = useState(0);
   const completedRazorpayOrdersRef = useRef(new Set());
+  const phonePrefilledRef = useRef(false);
   const [newAddr, setNewAddr] = useState({
     address: "",
     city: "",
@@ -134,10 +135,12 @@ export default function CheckoutPage() {
   }, []);
 
   useEffect(() => {
-    if (user?.phone && !newAddr.phone) {
-      setNewAddr((p) => ({ ...p, phone: user.phone || "" }));
+    if (phonePrefilledRef.current) return;
+    if (user?.phone) {
+      setNewAddr((p) => ({ ...p, phone: p.phone || user.phone || "" }));
+      phonePrefilledRef.current = true;
     }
-  }, [user?.phone, newAddr.phone]);
+  }, [user?.phone]);
 
   const totalPaise =
     cartItems?.reduce((s, i) => s + toPaise(i.price) * (Number(i.qty) || 0), 0) ?? 0;
@@ -186,6 +189,7 @@ export default function CheckoutPage() {
         setAddresses((prev) => [...prev, added]);
         setSelectedAddress(added);
         setShowAddAddress(false);
+        phonePrefilledRef.current = false;
         setNewAddr({
           address: "",
           city: "",
