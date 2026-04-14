@@ -20,9 +20,9 @@ jobs:
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.EC2_HOST }}        # ✅ SAME AS BACKEND
-          username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}      # ✅ SAME AS BACKEND
+          host: ${{ secrets.FRONTEND_HOST || secrets.EC2_HOST }}
+          username: ${{ secrets.FRONTEND_USER || 'ubuntu' }}
+          key: ${{ secrets.FRONTEND_SSH_KEY || secrets.EC2_SSH_KEY }}
           script: |
             set -e
 
@@ -30,11 +30,11 @@ jobs:
 
             cd /home/ubuntu
 
-            if [ ! -d "-KUREMEDI-LUCENT-Project" ]; then
+            if [ ! -d "./-KUREMEDI-LUCENT-Project" ]; then
               git clone https://github.com/ankurkushwaha809/-KUREMEDI-LUCENT-Project.git
             fi
 
-            cd "-KUREMEDI-LUCENT-Project"
+            cd -- "-KUREMEDI-LUCENT-Project"
 
             git fetch --all
             git reset --hard origin/main

@@ -1,5 +1,8 @@
 name: Build Expo APK (EAS)
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   push:
     branches: [ main ]
@@ -10,28 +13,28 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
 
       - name: Install dependencies
-        working-directory: Frontend/app/app
+        working-directory: Frontend/app
         run: npm install
 
       - name: Install EAS
         run: npm install -g eas-cli
 
       - name: Expo whoami
-        working-directory: Frontend/app/app
+        working-directory: Frontend/app
         run: eas whoami
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
       - name: Build APK
-        working-directory: Frontend/app/app
+        working-directory: Frontend/app
         run: eas build -p android --profile preview --non-interactive
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
