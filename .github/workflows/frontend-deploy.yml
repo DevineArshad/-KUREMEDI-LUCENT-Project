@@ -20,9 +20,9 @@ jobs:
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.EC2_FRONTEND_HOST }}
-          username: ubuntu
-          key: ${{ secrets.EC2_FRONTEND_KEY }}
+          host: ${{ secrets.FRONTEND_HOST }}
+          username: ${{ secrets.FRONTEND_USER }}
+          key: ${{ secrets.FRONTEND_SSH_KEY }}
           script: |
             set -e
 
@@ -30,7 +30,6 @@ jobs:
 
             cd /home/ubuntu
 
-            # Clone repo if not exists
             if [ ! -d "-KUREMEDI-LUCENT-Project" ]; then
               git clone https://github.com/ankurkushwaha809/-KUREMEDI-LUCENT-Project.git
             fi
@@ -40,14 +39,11 @@ jobs:
             echo "Pull latest code"
             git pull origin main
 
-            # -------- ADMIN BUILD --------
-            echo "Building admin panel..."
+            # -------- ADMIN --------
             cd Frontend/admin
-
             npm install
             npm run build
 
-            # Check build success
             if [ ! -d "dist" ]; then
               echo "Admin build failed ❌"
               exit 1
@@ -58,8 +54,7 @@ jobs:
             sudo cp -r dist/* /var/www/admin/
             sudo chmod -R 755 /var/www/admin
 
-            # -------- WEBSITE BUILD --------
-            echo "Building website..."
+            # -------- WEBSITE --------
             cd ../website
 
             export NEXT_PUBLIC_API_URL="https://backend.kuremedi.com/api"
@@ -67,16 +62,10 @@ jobs:
             npm install
             npm run build
 
-            # Ensure correct port
-            echo "Starting Next.js on port 3000"
-
-            pm2 delete website || true
+            pm2 delete all || true
             pm2 start npm --name website -- start
-
             pm2 save
 
-            # -------- NGINX RESTART --------
-            echo "Restart nginx"
             sudo systemctl restart nginx
 
             echo "Frontend deployment successful 🚀"
