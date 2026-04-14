@@ -30,6 +30,7 @@ jobs:
 
             cd /home/ubuntu
 
+            # Clone repo if not exists
             if [ ! -d "-KUREMEDI-LUCENT-Project" ]; then
               git clone https://github.com/ankurkushwaha809/-KUREMEDI-LUCENT-Project.git
             fi
@@ -39,22 +40,27 @@ jobs:
             echo "Pull latest code"
             git pull origin main
 
-            # -------- ADMIN --------
+            # ---------------- ADMIN (STATIC) ----------------
+            echo "Building admin panel..."
             cd Frontend/admin
+
             npm install
             npm run build
 
+            # Check build success
             if [ ! -d "dist" ]; then
               echo "Admin build failed ❌"
               exit 1
             fi
 
+            echo "Deploying admin..."
             sudo rm -rf /var/www/admin
             sudo mkdir -p /var/www/admin
             sudo cp -r dist/* /var/www/admin/
             sudo chmod -R 755 /var/www/admin
 
-            # -------- WEBSITE --------
+            # ---------------- WEBSITE (NEXT.JS) ----------------
+            echo "Building website..."
             cd ../website
 
             export NEXT_PUBLIC_API_URL="https://backend.kuremedi.com/api"
@@ -62,10 +68,13 @@ jobs:
             npm install
             npm run build
 
+            echo "Restarting website (PM2)..."
             pm2 delete all || true
             pm2 start npm --name website -- start
             pm2 save
 
+            # ---------------- NGINX ----------------
+            echo "Restart nginx..."
             sudo systemctl restart nginx
 
             echo "Frontend deployment successful 🚀"
