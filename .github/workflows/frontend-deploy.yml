@@ -32,23 +32,20 @@ jobs:
 
             echo "===== CONNECTED TO EC2 ====="
             whoami
-            pwd
 
             cd /home/ubuntu
 
-            # -------- CLONE / UPDATE REPO --------
+            # -------- CLONE / UPDATE --------
             if [ ! -d "-KUREMEDI-LUCENT-Project" ]; then
-              echo "Cloning repository..."
               git clone https://github.com/ankurkushwaha809/-KUREMEDI-LUCENT-Project.git
             fi
 
             cd "-KUREMEDI-LUCENT-Project"
 
-            echo "Pulling latest code..."
             git fetch --all
             git reset --hard origin/main
 
-            # -------- ADMIN BUILD --------
+            # -------- ADMIN (PM2) --------
             echo "===== BUILDING ADMIN ====="
             cd Frontend/admin
 
@@ -60,13 +57,14 @@ jobs:
               exit 1
             fi
 
-            echo "Deploying admin..."
-            sudo rm -rf /var/www/admin
-            sudo mkdir -p /var/www/admin
-            sudo cp -r dist/* /var/www/admin/
-            sudo chmod -R 755 /var/www/admin
+            echo "Starting admin via PM2..."
 
-            # -------- WEBSITE BUILD --------
+            sudo npm install -g serve
+
+            pm2 delete admin || true
+            pm2 start serve --name admin -- -s dist -l 3008
+
+            # -------- WEBSITE (PM2) --------
             echo "===== BUILDING WEBSITE ====="
             cd ../website
 
@@ -75,17 +73,19 @@ jobs:
             npm install
             npm run build
 
-            echo "Restarting PM2..."
-            pm2 delete all || true
+            echo "Restarting website..."
+
+            pm2 delete website || true
             pm2 start npm --name website -- start
+
             pm2 save
 
-            # -------- VERIFY WEBSITE --------
+            # -------- VERIFY --------
             sleep 5
-            curl -f http://localhost:3000 || (echo "❌ Website failed to start" && exit 1)
+            curl -f http://localhost:3000 || (echo "❌ Website failed" && exit 1)
+            curl -f http://localhost:3008 || (echo "❌ Admin failed" && exit 1)
 
             # -------- NGINX --------
-            echo "Restarting nginx..."
             sudo nginx -t
             sudo systemctl restart nginx
 
