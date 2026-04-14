@@ -30,7 +30,7 @@ const formatCurrency = (value) =>
 const getPendingCount = (orders = []) =>
   orders.filter((order) => {
     const status = String(order?.status || '').toUpperCase();
-    return status !== 'DELIVERED' && status !== 'CANCELLED';
+    return status !== 'DELIVERED' && status !== 'CANCELLED' && status !== 'REFUNDED';
   }).length;
 
 export default function ProfilePage() {

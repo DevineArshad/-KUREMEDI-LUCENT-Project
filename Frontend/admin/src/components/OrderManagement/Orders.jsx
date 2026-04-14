@@ -12,6 +12,7 @@ const TABS = [
   { key: "DISPATCHED", label: "Shipped" },
   { key: "DELIVERED", label: "Delivered" },
   { key: "CANCELLED", label: "Cancelled" },
+  { key: "REFUNDED", label: "Refunded" },
 ];
 
 const STATUS_OPTIONS = [
@@ -20,6 +21,7 @@ const STATUS_OPTIONS = [
   "DISPATCHED",
   "DELIVERED",
   "CANCELLED",
+  "REFUNDED",
 ];
 
 const formatDate = (d) => {
@@ -113,6 +115,9 @@ const Orders = () => {
     ).length,
     CANCELLED: orders.filter((o) =>
       (o.status || "").toUpperCase() === "CANCELLED"
+    ).length,
+    REFUNDED: orders.filter((o) =>
+      (o.status || "").toUpperCase() === "REFUNDED"
     ).length,
   };
 
@@ -266,7 +271,7 @@ const Orders = () => {
                       <span
                         className={`px-2 py-0.5 rounded text-xs ${status === "DELIVERED"
                           ? "bg-green-100 text-green-800"
-                          : status === "CANCELLED"
+                          : status === "CANCELLED" || status === "REFUNDED"
                             ? "bg-red-100 text-red-800"
                             : status === "DISPATCHED"
                               ? "bg-blue-100 text-blue-800"

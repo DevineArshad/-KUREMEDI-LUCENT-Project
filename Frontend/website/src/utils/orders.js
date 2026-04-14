@@ -5,9 +5,10 @@ const ORDER_STATUS_META = {
   DISPATCHED: { label: "Delivering", tone: "indigo" },
   DELIVERED: { label: "Delivered", tone: "emerald" },
   CANCELLED: { label: "Cancelled", tone: "rose" },
+  REFUNDED: { label: "Refunded", tone: "rose" },
 };
 
-export const ORDER_STATUS_SEQUENCE = ["PENDING", "PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"];
+export const ORDER_STATUS_SEQUENCE = ["PENDING", "PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED", "REFUNDED"];
 
 export function normalizeOrderStatus(status) {
   return String(status || "PLACED").toUpperCase();
@@ -33,6 +34,7 @@ export function getOrderDeliveryLabel(status) {
 
 export function getOrderProgressLabel(status) {
   const normalized = normalizeOrderStatus(status);
+  if (normalized === "REFUNDED") return "Refunded";
   if (normalized === "CANCELLED") return "Cancelled";
   if (normalized === "DELIVERED") return "Delivered";
   if (normalized === "DISPATCHED") return "Delivering";

@@ -25,7 +25,7 @@ function formatDateStable(dateLike) {
 
 function getStepIndex(status) {
   const s = (status || 'PLACED').toUpperCase();
-  if (s === 'CANCELLED') return -1;
+  if (s === 'CANCELLED' || s === 'REFUNDED') return -1;
   const i = STATUS_ORDER.indexOf(s);
   return i < 0 ? 0 : i;
 }
@@ -33,7 +33,7 @@ function getStepIndex(status) {
 function OrderStatusTimeline({ status }) {
   const currentIndex = getStepIndex(status);
   const statusUpper = (status || 'PLACED').toUpperCase();
-  const isCancelled = statusUpper === 'CANCELLED';
+  const isCancelled = statusUpper === 'CANCELLED' || statusUpper === 'REFUNDED';
 
   if (isCancelled) {
     return (
@@ -41,7 +41,7 @@ function OrderStatusTimeline({ status }) {
         <div className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center">
           <X className="w-3.5 h-3.5 text-red-600" />
         </div>
-        <span className="text-red-600 font-medium text-sm">Cancelled</span>
+        <span className="text-red-600 font-medium text-sm">{statusUpper === 'REFUNDED' ? 'Refunded' : 'Cancelled'}</span>
       </div>
     );
   }

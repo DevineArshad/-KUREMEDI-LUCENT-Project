@@ -11,6 +11,7 @@ const STATUS_OPTIONS = [
     "DISPATCHED",
     "DELIVERED",
     "CANCELLED",
+    "REFUNDED",
 ];
 
 const formatDate = (d) => {

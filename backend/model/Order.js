@@ -95,7 +95,7 @@ const orderSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["PENDING", "PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"],
+      enum: ["PENDING", "PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED", "REFUNDED"],
       default: "PLACED",
     },
 
@@ -107,6 +107,7 @@ const orderSchema = new mongoose.Schema(
 
     razorpayOrderId: { type: String },
     razorpayPaymentId: { type: String },
+    razorpayRefundId: { type: String, default: null },
 
     // Split payment: wallet + Razorpay
     walletAmount: { type: Number, default: 0 },

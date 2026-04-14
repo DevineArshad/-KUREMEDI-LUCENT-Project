@@ -403,6 +403,19 @@ export const cancelShipment = async (shipmentId) => {
 
     return res.data;
   } catch (err) {
-    throw new Error("Failed to cancel shipment");
+    const responseMessage =
+      err.response?.data?.message ||
+      err.response?.data?.error ||
+      err.response?.data?.errors?.[0]?.message ||
+      err.message ||
+      "Failed to cancel shipment";
+    const e = new Error(responseMessage);
+    e.shiprocket = {
+      stage: "cancel_shipment",
+      message: responseMessage,
+      response: err.response?.data,
+      status: err.response?.status,
+    };
+    throw e;
   }
 };
