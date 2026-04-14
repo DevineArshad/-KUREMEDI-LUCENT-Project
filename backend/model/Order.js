@@ -130,6 +130,12 @@ const orderSchema = new mongoose.Schema(
     shiprocketAwb: { type: String, default: null },
     shiprocketLabelUrl: { type: String, default: null },
     trackingUrl: { type: String, default: null },
+
+    // Cancellation/refund bookkeeping
+    stockRestoredOnCancel: { type: Boolean, default: false },
+    refundProcessed: { type: Boolean, default: false },
+    refundAmount: { type: Number, default: 0 },
+    refundAt: { type: Date, default: null },
   },
   { timestamps: true },
 );

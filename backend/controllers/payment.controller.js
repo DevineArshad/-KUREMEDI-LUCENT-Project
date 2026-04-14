@@ -1175,6 +1175,7 @@ export const generateOrderAwb = async (req, res) => {
  */
 export const updateOrderStatus = async (req, res) => {
   let awbError = null;
+  let refundMessage = null;
   try {
     const { orderId, ...fields } = req.body;
 
@@ -1187,6 +1188,8 @@ export const updateOrderStatus = async (req, res) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
+    const previousStatus = String(order.status || "").toUpperCase();
+
     if (fields.status) {
       const allowed = ["PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"];
       if (!allowed.includes(fields.status)) {
@@ -1194,8 +1197,10 @@ export const updateOrderStatus = async (req, res) => {
       }
       order.status = fields.status;
 
-      // If order has no Shiprocket shipment yet, try to create it now
-      if (!order.shiprocketShipmentId) {
+      const shouldEnsureShipment = fields.status === "DISPATCHED";
+
+      // Create shipment only when dispatching. Confirmed should not fail due to Shiprocket setup.
+      if (shouldEnsureShipment && !order.shiprocketShipmentId) {
         try {
           const orderWithUser = await Order.findById(order._id).populate(
             "user",
@@ -1222,6 +1227,50 @@ export const updateOrderStatus = async (req, res) => {
             message: "Failed to create Shiprocket shipment",
             shiprocketError: payload,
           });
+        }
+      }
+
+      // On cancellation, refund once to wallet and restore stock once.
+      if (fields.status === "CANCELLED" && previousStatus !== "CANCELLED") {
+        if (!order.stockRestoredOnCancel) {
+          for (const item of order.items || []) {
+            const productId = item?.product?._id || item?.product;
+            if (productId) {
+              await Product.findByIdAndUpdate(productId, {
+                $inc: { stockQuantity: Number(item.quantity || 0) },
+              });
+            }
+          }
+          order.stockRestoredOnCancel = true;
+        }
+
+        if (!order.refundProcessed) {
+          const refundAmount = Math.round(Number(order.payableAmount || order.totalAmount || 0) * 100) / 100;
+          if (refundAmount > 0) {
+            let wallet = await Wallet.findOne({ user: order.user });
+            if (!wallet) {
+              wallet = await Wallet.create({ user: order.user, balance: 0 });
+            }
+
+            wallet.balance = Math.round((Number(wallet.balance || 0) + refundAmount) * 100) / 100;
+            wallet.transactions.push({
+              amount: refundAmount,
+              type: "CREDIT",
+              description: "Order cancelled refund",
+              order: order._id,
+              balanceAfter: wallet.balance,
+            });
+            await wallet.save();
+
+            order.refundProcessed = true;
+            order.refundAmount = refundAmount;
+            order.refundAt = new Date();
+            refundMessage = `Refunded Rs ${refundAmount.toFixed(2)} to user wallet.`;
+          } else {
+            refundMessage = "Order cancelled. No refundable amount found.";
+          }
+        } else {
+          refundMessage = `Order already refunded (Rs ${Number(order.refundAmount || 0).toFixed(2)}).`;
         }
       }
 
@@ -1280,6 +1329,9 @@ export const updateOrderStatus = async (req, res) => {
     await order.save();
 
     const json = { message: "Order status updated", order };
+    if (refundMessage) {
+      json.refundMessage = refundMessage;
+    }
     if (awbError) {
       json.awbError = awbError;
       const msg = typeof awbError === "object" && awbError?.response?.message;

@@ -95,7 +95,9 @@ const OrderDetail = () => {
         try {
             const result = await updateOrderStatus(selectedOrderId, "status", status);
             setOrder((prev) => ({ ...prev, status }));
-            if (result?.awbMessage) {
+            if (result?.refundMessage) {
+                toast.success(result.refundMessage);
+            } else if (result?.awbMessage) {
                 toast(result.awbMessage);
             } else if (result?.awbError) {
                 toast.error(result?.awbError?.message || "AWB generation failed");
