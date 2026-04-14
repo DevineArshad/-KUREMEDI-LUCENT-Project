@@ -30,9 +30,19 @@ export const getShiprocketToken = async () => {
 
     return shiprocketToken;
   } catch (err) {
-    const data = err.response?.data || err.message;
-    const e = new Error("Failed to login to Shiprocket");
-    e.shiprocket = { stage: "login", response: err.response?.data, status: err.response?.status };
+    const responseMessage =
+      err.response?.data?.message ||
+      err.response?.data?.error ||
+      err.response?.data?.errors?.[0]?.message ||
+      err.message ||
+      "Failed to login to Shiprocket";
+    const e = new Error(responseMessage);
+    e.shiprocket = {
+      stage: "login",
+      message: responseMessage,
+      response: err.response?.data,
+      status: err.response?.status,
+    };
     throw e;
   }
 };
