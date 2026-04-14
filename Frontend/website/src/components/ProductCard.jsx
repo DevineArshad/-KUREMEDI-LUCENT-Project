@@ -5,6 +5,24 @@ import { Heart, Plus, Minus } from "lucide-react";
 import Link from "next/link";
 import { getProductSlug } from "@/utils/product";
 
+const formatMoney = (value) =>
+  `₹${Number(value || 0).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
+const htmlToPlainText = (value) =>
+  String(value || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+
 export const ProductCard = ({
   product,
   cartItem,
@@ -59,7 +77,7 @@ export const ProductCard = ({
       <div className="space-y-2 grow">
         <div className="flex items-baseline justify-between">
           <span className="text-teal-700 font-bold text-lg">
-            ₹{product.sellingPrice || product.price}
+            {formatMoney(product.sellingPrice || product.price)}
           </span>
           {product.packSize && (
             <span className="text-[10px] text-gray-400 font-medium">
@@ -78,14 +96,14 @@ export const ProductCard = ({
 
         {product.description && (
           <p className="text-xs text-gray-500 line-clamp-1">
-            {product.description}
+            {htmlToPlainText(product.description)}
           </p>
         )}
 
         {product.discountPercent > 0 && (
           <div className="flex items-center gap-2 text-xs">
             <span className="text-gray-400 line-through">
-              ₹{Math.round(
+              {formatMoney(
                 (product.sellingPrice || product.price) /
                   (1 - product.discountPercent / 100)
               )}

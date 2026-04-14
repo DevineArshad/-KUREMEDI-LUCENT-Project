@@ -65,6 +65,24 @@ const FALLBACK_BANNERS = [
   },
 ];
 
+const dedupeBrands = (list) => {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const result = [];
+
+  for (const brand of list) {
+    const idKey = String(brand?._id || "").trim();
+    const nameKey = String(brand?.name || "").trim().toLowerCase();
+    const logoKey = String(brand?.logo || "").trim().toLowerCase();
+    const key = idKey || `${nameKey}|${logoKey}`;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(brand);
+  }
+
+  return result;
+};
+
 const HomePage = () => {
   const router = useRouter();
   const {
@@ -133,8 +151,11 @@ const HomePage = () => {
 
   const brandLoop = useMemo(() => {
     if (!Array.isArray(brands) || brands.length === 0) return [];
+    if (brands.length <= 3) return brands;
     return [...brands, ...brands];
   }, [brands]);
+
+  const shouldAnimateBrands = brandLoop.length > brands.length;
 
   // Auto-slide Hero Banner
   useEffect(() => {
@@ -178,7 +199,7 @@ const HomePage = () => {
             : [];
 
         setCategories(categoriesList);
-        setBrands(brandsList);
+        setBrands(dedupeBrands(brandsList));
         setProducts(productsList);
 
         const activeBanners = Array.isArray(bannerRes?.data)
@@ -380,7 +401,7 @@ const HomePage = () => {
           onMouseLeave={() => setIsBrandsHovered(false)}
         >
           <div
-            className="flex w-max gap-6 md:gap-8 py-1 marquee-track"
+            className={`flex w-max gap-6 md:gap-8 py-1 ${shouldAnimateBrands ? "marquee-track" : ""}`}
             style={{ animationPlayState: isBrandsHovered ? "paused" : "running" }}
           >
             {brandLoop.map((brand, index) => (

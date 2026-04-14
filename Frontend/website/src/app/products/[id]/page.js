@@ -23,7 +23,11 @@ import { showToast } from "@/utils/toast";
 
 const isMongoId = (value) => typeof value === "string" && /^[a-f0-9]{24}$/i.test(value);
 
-const formatMoney = (value) => `₹${Number(value || 0).toLocaleString("en-IN")}`;
+const formatMoney = (value) =>
+  `₹${Number(value || 0).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 
 export default function ProductDetailPage() {
   const params = useParams();
@@ -112,7 +116,10 @@ export default function ProductDetailPage() {
   const gstPercentValue = Math.max(0, Number(product.gstPercent || 0));
   const gstAmount = gstPercentValue > 0 ? (discountedPrice * gstPercentValue) / 100 : 0;
   const saveAmount = Math.max(0, basePrice - discountedPrice);
-  const totalBeforeGst = (discountedPrice * qty).toLocaleString("en-IN");
+  const totalBeforeGst = Number(discountedPrice * qty).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
   const showDiscount = discountPercent > 0;
   const wished = isInWishlist?.(product._id);
 

@@ -1,20 +1,32 @@
-import QRCode from 'qrcode';
+import QRCode from "qrcode";
 
-const BRAND = {
-  sellerName: process.env.NEXT_PUBLIC_SELLER_NAME || 'Kure Medi Pvt. Ltd.',
-  shipFromAddress:
-    process.env.NEXT_PUBLIC_SELLER_SHIP_FROM ||
-    'Warehouse 01, Industrial Area, Madhya Pradesh, India - 462001',
-  sellerPhone: process.env.NEXT_PUBLIC_SELLER_PHONE || '+91 00000 00000',
-  sellerEmail: process.env.NEXT_PUBLIC_SELLER_EMAIL || 'support@kuremedi.com',
-  sellerGstin: process.env.NEXT_PUBLIC_SELLER_GSTIN || 'N/A',
-  sellerPan: process.env.NEXT_PUBLIC_SELLER_PAN || 'N/A',
-  sellerCin: process.env.NEXT_PUBLIC_SELLER_CIN || 'N/A',
-  signatureUrl: process.env.NEXT_PUBLIC_SELLER_SIGNATURE_URL || '',
+const SELLER = {
+  name: process.env.NEXT_PUBLIC_SELLER_NAME || "LUCENT BIOTECH LTD (UNIT-II)",
+  addressLine1: process.env.NEXT_PUBLIC_SELLER_ADDR_1 || "16/5, NALHERA AJANTPUR",
+  addressLine2: process.env.NEXT_PUBLIC_SELLER_ADDR_2 || "PURANA IQBALPUR ROAD, ROORKEE-247667",
+  addressLine3: process.env.NEXT_PUBLIC_SELLER_ADDR_3 || "DISTT. HARIDWAR, UTTARAKHAND",
+  cin: process.env.NEXT_PUBLIC_SELLER_CIN || "U24232UP2005PLC029816",
+  state: process.env.NEXT_PUBLIC_SELLER_STATE || "UTTARAKHAND",
+  stateCode: process.env.NEXT_PUBLIC_SELLER_STATE_CODE || "05",
+  gstin: process.env.NEXT_PUBLIC_SELLER_GSTIN || "05AABCL0886F2ZN",
+  pan: process.env.NEXT_PUBLIC_SELLER_PAN || "AABCL0886F",
+  phone: process.env.NEXT_PUBLIC_SELLER_PHONE || "+91 41111111",
+  email: process.env.NEXT_PUBLIC_SELLER_EMAIL || "info@lucent.in",
+  licenseNo: process.env.NEXT_PUBLIC_SELLER_LICENSE || "43/UA/2016,45/UA/SC/P/2016",
 };
 
-const PAGE_SIZE = 'A4';
-const PAGE_MARGIN = 40;
+const BANK = {
+  bankName: process.env.NEXT_PUBLIC_SELLER_BANK_NAME || "HDFC BANK",
+  branch: process.env.NEXT_PUBLIC_SELLER_BANK_BRANCH || "PRANAY TOWERS, LUCKNOW",
+  accountNo: process.env.NEXT_PUBLIC_SELLER_BANK_ACCOUNT || "50200013663375",
+  ifsc: process.env.NEXT_PUBLIC_SELLER_BANK_IFSC || "HDFC0000594",
+};
+
+const TERMS = [
+  "Goods once sold will not be taken back or exchanged.",
+  "Bills not paid by due date will attract 24% interest.",
+  "All disputes subject to ROORKEE jurisdiction only.",
+];
 
 const toNum = (value) => {
   const n = Number(value);
@@ -22,165 +34,107 @@ const toNum = (value) => {
 };
 
 const round2 = (value) => Math.round((toNum(value) + Number.EPSILON) * 100) / 100;
+const round3 = (value) => Math.round((toNum(value) + Number.EPSILON) * 1000) / 1000;
 
-const money = (value) =>
-  `INR ${round2(value).toLocaleString('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+const fmt2 = (value) => round2(value).toFixed(2);
+const fmt3 = (value) => round3(value).toFixed(3);
 
-const safeText = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+const text = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
 
 const formatDate = (dateLike) => {
-  if (!dateLike) return '-';
-  const d = new Date(dateLike);
-  if (Number.isNaN(d.getTime())) return '-';
-  return d.toLocaleDateString('en-GB').replace(/\//g, '-');
+  const d = new Date(dateLike || Date.now());
+  if (Number.isNaN(d.getTime())) return "-";
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
 };
 
-const getInvoiceNumber = (orderId) => `INV-${String(orderId || '').slice(-8).toUpperCase()}`;
-
-const formatAddress = (shippingAddress = {}, options = {}) => {
-  const includePhone = options?.includePhone ?? true;
-  const parts = [
-    shippingAddress.shopName,
-    shippingAddress.address,
-    [shippingAddress.city, shippingAddress.state, shippingAddress.pincode].filter(Boolean).join(', '),
-    includePhone && shippingAddress.phone ? `Phone: ${shippingAddress.phone}` : '',
-  ].filter(Boolean);
-
-  return parts.length ? parts.join('\n') : 'Not provided';
+const formatDateTime = (dateLike) => {
+  const d = new Date(dateLike || Date.now());
+  if (Number.isNaN(d.getTime())) return "-";
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${formatDate(d)} AT ${hh}:${mi}`;
 };
 
-const getBuyerLines = (order, buyer = {}) => {
-  const phone = buyer?.phone || order?.shippingAddress?.phone || '';
-  return [
-    buyer?.name || order?.shippingAddress?.shopName || 'Customer',
-    buyer?.email || '',
-    phone ? `Phone: ${phone}` : '',
-    buyer?.gstNumber ? `GSTIN: ${buyer.gstNumber}` : '',
-    buyer?.drugLicenseNumber ? `Drug License: ${buyer.drugLicenseNumber}` : '',
-    formatAddress(order?.shippingAddress, { includePhone: false }),
-  ].filter(Boolean);
+const getInvoiceNo = (order) => {
+  const raw = text(order?.invoiceNo || "");
+  if (raw) return raw;
+  return `L25-${String(order?._id || "").slice(-6).toUpperCase() || "000000"}`;
 };
 
-const buildRows = (items) => {
-  return items.map((item) => {
-    const qty = Math.max(0, toNum(item?.quantity || 0));
-    const finalUnitFromOrder = toNum(item?.price || 0);
-    const discPct = Math.max(0, toNum(item?.discountPercent || 0));
-    const gstPct = Math.max(0, toNum(item?.gstPercent || 0));
-
-    // Preferred exact source when available.
-    let sellingUnit = toNum(item?.sellingPrice || 0);
-
-    // Recover selling price from final price when sellingPrice is not stored.
-    const denominator = 1 - discPct / 100 + gstPct / 100;
-    if (sellingUnit <= 0 && finalUnitFromOrder > 0 && denominator > 0) {
-      sellingUnit = round2(finalUnitFromOrder / denominator);
-    }
-
-    // Fallback hierarchy for incomplete legacy rows.
-    if (sellingUnit <= 0) {
-      sellingUnit = toNum(item?.mrp || finalUnitFromOrder || 0);
-    }
-
-    const discountUnit = round2((sellingUnit * discPct) / 100);
-    const discountedUnit = round2(Math.max(0, sellingUnit - discountUnit));
-    const gstUnit = round2((sellingUnit * gstPct) / 100);
-    const computedFinalUnit = round2(discountedUnit + gstUnit);
-
-    const gross = round2(sellingUnit * qty);
-    const discAmt = round2(discountUnit * qty);
-    const taxable = round2(discountedUnit * qty);
-    const gstTotal = round2(gstUnit * qty);
-
-    const unit = discountedUnit;
-    const sgst = round2(gstTotal / 2);
-    const cgst = round2(gstTotal / 2);
-    const finalLineTotal = round2(computedFinalUnit * qty);
-
-    return {
-      product: safeText(item?.productName || 'Product'),
-      hsn: safeText(item?.hsnCode || 'N/A'),
-      qty,
-      sellingUnit: sellingUnit,
-      discountUnit: discountUnit,
-      discountedUnit: discountedUnit,
-      gstUnit: gstUnit,
-      finalUnit: computedFinalUnit,
-      unit,
-      gross,
-      discAmt,
-      taxable,
-      sgst,
-      cgst,
-      gstPercent: gstPct,
-      discountPercent: discPct,
-      lineTotal: finalLineTotal,
-    };
-  });
+const getOrderNo = (order) => {
+  const idTail = String(order?._id || "").slice(-8).toUpperCase();
+  return idTail ? `ORD-${idTail}` : "AS PER P.O.";
 };
 
-const urlToDataUrl = async (url) => {
-  if (!url || typeof window === 'undefined') return '';
-  try {
-    const response = await fetch(url);
-    const blob = await response.blob();
-    const dataUrl = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(String(reader.result || ''));
-      reader.onerror = () => reject(new Error('Could not read image file'));
-      reader.readAsDataURL(blob);
-    });
-    return dataUrl;
-  } catch {
-    return '';
+const getBuyer = (order, buyer = {}) => {
+  const shipping = order?.shippingAddress || {};
+  return {
+    name: text(buyer?.shopName || buyer?.name || shipping?.shopName || "PARTY NAME"),
+    address: text(shipping?.address || buyer?.address || ""),
+    city: text(shipping?.city || buyer?.city || ""),
+    state: text(shipping?.state || buyer?.state || ""),
+    pincode: text(shipping?.pincode || buyer?.pincode || ""),
+    phone: text(buyer?.phone || shipping?.phone || ""),
+    gstin: text(buyer?.gstNumber || ""),
+    dlNo: text(buyer?.drugLicenseNumber || ""),
+    cstNo: text(buyer?.cstNumber || ""),
+  };
+};
+
+const inWordsUnder1000 = (n) => {
+  const ones = [
+    "", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+    "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen",
+  ];
+  const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+
+  const value = Math.floor(Math.max(0, n));
+  if (value < 20) return ones[value];
+  if (value < 100) {
+    const t = Math.floor(value / 10);
+    const r = value % 10;
+    return `${tens[t]}${r ? ` ${ones[r]}` : ""}`.trim();
   }
+  const h = Math.floor(value / 100);
+  const r = value % 100;
+  return `${ones[h]} Hundred${r ? ` ${inWordsUnder1000(r)}` : ""}`.trim();
 };
 
-const normalizeRows = (rows = []) =>
-  rows.map((r) => ({
-    ...r,
-    tax: round2(r.sgst + r.cgst),
-  }));
+const amountToWords = (amount) => {
+  const total = round2(amount);
+  const rupees = Math.floor(total);
+  const paise = Math.round((total - rupees) * 100);
+
+  if (rupees === 0 && paise === 0) return "Zero Rupees Only";
+
+  const crore = Math.floor(rupees / 10000000);
+  const lakh = Math.floor((rupees % 10000000) / 100000);
+  const thousand = Math.floor((rupees % 100000) / 1000);
+  const rest = rupees % 1000;
+
+  const chunks = [];
+  if (crore) chunks.push(`${inWordsUnder1000(crore)} Crore`);
+  if (lakh) chunks.push(`${inWordsUnder1000(lakh)} Lakh`);
+  if (thousand) chunks.push(`${inWordsUnder1000(thousand)} Thousand`);
+  if (rest) chunks.push(inWordsUnder1000(rest));
+
+  const rupeeWords = `${chunks.join(" ").trim()} Rupees`;
+  if (!paise) return `${rupeeWords} Only`;
+  return `${rupeeWords} and ${inWordsUnder1000(paise)} Paise Only`;
+};
 
 const waitForBlob = (stream) =>
   new Promise((resolve, reject) => {
-    stream.on('finish', () => resolve(stream.toBlob('application/pdf')));
-    stream.on('error', reject);
+    stream.on("finish", () => resolve(stream.toBlob("application/pdf")));
+    stream.on("error", reject);
   });
-
-const drawLabelValue = (doc, label, value, x, y, labelWidth = 90) => {
-  doc.font('Helvetica-Bold').text(label, x, y, { width: labelWidth });
-  doc.font('Helvetica').text(String(value || '-'), x + labelWidth, y, { width: 180 });
-};
-
-const drawTableHeader = (doc, y, columns) => {
-  doc.save();
-  doc.rect(PAGE_MARGIN, y, doc.page.width - PAGE_MARGIN * 2, 20).fill('#f3f4f6');
-  doc.fillColor('#111827').font('Helvetica-Bold').fontSize(9);
-
-  let x = PAGE_MARGIN + 6;
-  columns.forEach((col) => {
-    doc.text(col.label, x, y + 6, { width: col.width, align: col.align || 'left' });
-    x += col.width;
-  });
-
-  doc.restore();
-  doc.moveTo(PAGE_MARGIN, y + 20).lineTo(doc.page.width - PAGE_MARGIN, y + 20).stroke('#d1d5db');
-};
-
-const ensureTableRoom = (doc, cursorY, minHeight = 26) => {
-  const bottomSafe = doc.page.height - PAGE_MARGIN - 70;
-  if (cursorY + minHeight <= bottomSafe) return cursorY;
-  doc.addPage({ size: PAGE_SIZE, margin: PAGE_MARGIN });
-  return PAGE_MARGIN;
-};
 
 const triggerBrowserDownload = (blob, filename) => {
   const blobUrl = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
+  const anchor = document.createElement("a");
   anchor.href = blobUrl;
   anchor.download = filename;
   document.body.appendChild(anchor);
@@ -189,190 +143,353 @@ const triggerBrowserDownload = (blob, filename) => {
   setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
 };
 
+const buildRows = (order) => {
+  const items = Array.isArray(order?.items) ? order.items : [];
+
+  return items.map((item, idx) => {
+    const qty = Math.max(0, toNum(item?.quantity || 0));
+    const ptr = round2(item?.price || 0);
+    const mrp = round2(item?.mrp || ptr || 0);
+    const gstPct = Math.max(0, toNum(item?.gstPercent || 0));
+    const tGst = round3(gstPct / 2);
+    const gross = round2(ptr * qty);
+
+    return {
+      st: idx + 1,
+      hsn: text(item?.hsnCode || "30049099"),
+      productName: text(item?.productName || "PRODUCT NAME"),
+      pUnit: text(item?.packing || "1X10X1"),
+      batchNo: text(item?.batchNo || "-"),
+      mfg: text(item?.mfg || "-"),
+      exp: text(item?.exp || "-"),
+      mrp,
+      ptr,
+      caseWeight: "0.000KGS",
+      cases: qty,
+      qty,
+      unit: text(item?.unit || "BOX"),
+      rate: ptr,
+      tGst,
+      value: gross,
+      amount: gross,
+    };
+  });
+};
+
+const drawCell = (doc, x, y, w, h, value, opts = {}) => {
+  const font = opts.font || "Helvetica";
+  const size = opts.size || 7;
+  const align = opts.align || "left";
+  const pad = opts.pad ?? 2;
+
+  doc.rect(x, y, w, h).stroke("#111111");
+  doc.font(font).fontSize(size).fillColor("#111111").text(String(value ?? ""), x + pad, y + 2, {
+    width: Math.max(0, w - pad * 2),
+    align,
+    lineBreak: false,
+    ellipsis: true,
+  });
+};
+
 export async function downloadOrderInvoicePdf(order, options = {}) {
-  if (!order || typeof window === 'undefined') return;
+  if (!order || typeof window === "undefined") return;
 
   const [{ default: PDFDocument }, blobStreamModule] = await Promise.all([
-    import('pdfkit/js/pdfkit.standalone'),
-    import('blob-stream'),
+    import("pdfkit/js/pdfkit.standalone"),
+    import("blob-stream"),
   ]);
   const blobStream = blobStreamModule?.default || blobStreamModule;
 
-  const buyer = options?.buyer || {};
-  const items = Array.isArray(order.items) ? order.items : [];
-  const rows = normalizeRows(buildRows(items));
+  const buyer = getBuyer(order, options?.buyer || {});
+  const rows = buildRows(order);
 
-  const totalQty = rows.reduce((s, r) => s + r.qty, 0);
-  const totalGross = rows.reduce((s, r) => s + r.gross, 0);
-  const totalDisc = rows.reduce((s, r) => s + r.discAmt, 0);
-  const totalTaxable = rows.reduce((s, r) => s + r.taxable, 0);
-  const totalSgst = rows.reduce((s, r) => s + r.sgst, 0);
-  const totalCgst = rows.reduce((s, r) => s + r.cgst, 0);
-  const computedGrand = rows.reduce((s, r) => s + r.lineTotal, 0);
-
-  const subtotal = round2(totalTaxable || order.totalAmount || 0);
-  const orderGst = round2(totalSgst + totalCgst || order.totalGstAmount || 0);
-  const grandTotal = round2(computedGrand || subtotal + orderGst || order.payableAmount || 0);
-  const discountPercent = totalGross > 0 ? round2((totalDisc / totalGross) * 100) : 0;
-  const gstPercent = totalGross > 0 ? round2((orderGst / totalGross) * 100) : 0;
-
-  const invoiceNumber = getInvoiceNumber(order._id);
-  const buyerLines = getBuyerLines(order, buyer);
+  const totalAmount = round2(rows.reduce((s, r) => s + r.amount, 0) || order?.payableAmount || 0);
+  const totalQty = rows.reduce((s, r) => s + toNum(r.qty), 0);
 
   const qrDataUrl = await QRCode.toDataURL(
-    `Invoice:${invoiceNumber}\nOrder:${String(order._id || '').slice(-8).toUpperCase()}\nDate:${formatDate(order.createdAt)}\nTotal:${money(grandTotal)}`,
-    { width: 160, margin: 0 },
+    `INV:${getInvoiceNo(order)}\nORDER:${getOrderNo(order)}\nDATE:${formatDate(order?.createdAt)}\nAMOUNT:${fmt2(totalAmount)}`,
+    { width: 96, margin: 0 }
   );
 
-  const signatureDataUrl = await urlToDataUrl(BRAND.signatureUrl);
-
-  const doc = new PDFDocument({ size: PAGE_SIZE, margin: PAGE_MARGIN, compress: true });
+  const doc = new PDFDocument({ size: "A4", layout: "landscape", margin: 10, compress: true });
   const stream = doc.pipe(blobStream());
 
-  const pageWidth = doc.page.width;
-  const usableWidth = pageWidth - PAGE_MARGIN * 2;
+  const pageW = doc.page.width;
+  const pageH = doc.page.height;
+  const margin = 10;
+  const fullW = pageW - margin * 2;
 
-  doc.font('Helvetica-Bold').fontSize(18).fillColor('#0f172a').text('TAX INVOICE', PAGE_MARGIN, 42);
-  doc.font('Helvetica').fontSize(10).fillColor('#1f2937').text(BRAND.sellerName, PAGE_MARGIN, 66);
-  doc.font('Helvetica').fontSize(9).fillColor('#4b5563').text(BRAND.shipFromAddress, PAGE_MARGIN, 82, {
-    width: 300,
-    lineGap: 2,
+  doc.rect(margin, margin, fullW, pageH - margin * 2).stroke("#111111");
+
+  let y = margin;
+
+  const topH = 112;
+  const leftW = Math.round(fullW * 0.42);
+  const midW = Math.round(fullW * 0.26);
+  const rightW = fullW - leftW - midW;
+
+  drawCell(doc, margin, y, leftW, topH, "");
+  drawCell(doc, margin + leftW, y, midW, topH, "");
+  drawCell(doc, margin + leftW + midW, y, rightW, topH, "");
+
+  let ly = y + 4;
+  doc.font("Helvetica-Bold").fontSize(12).text(SELLER.name, margin + 4, ly, { width: leftW - 8 });
+  ly += 14;
+  doc.font("Helvetica").fontSize(7).text(SELLER.addressLine1, margin + 4, ly, { width: leftW - 8 });
+  ly += 9;
+  doc.text(SELLER.addressLine2, margin + 4, ly, { width: leftW - 8 });
+  ly += 9;
+  doc.text(SELLER.addressLine3, margin + 4, ly, { width: leftW - 8 });
+  ly += 9;
+  doc.text(`CIN: ${SELLER.cin}`, margin + 4, ly, { width: leftW - 8 });
+  ly += 9;
+  doc.text(`GSTIN: ${SELLER.gstin}`, margin + 4, ly, { width: leftW - 8 });
+  ly += 9;
+  doc.text(`PHONE: ${SELLER.phone}`, margin + 4, ly, { width: leftW - 8 });
+  ly += 9;
+  doc.text(`E-MAIL: ${SELLER.email}`, margin + 4, ly, { width: leftW - 8 });
+  ly += 9;
+  doc.text(`STATE : ${SELLER.state} - ${SELLER.stateCode}`, margin + 4, ly, { width: leftW - 8 });
+  doc.font("Helvetica").fontSize(6).fillColor("#1d4ed8").text(`Licence No.: ${SELLER.licenseNo}`, margin + 4, y + topH - 12, { width: leftW - 8 });
+
+  doc.font("Helvetica-Bold").fontSize(14).fillColor("#111827").text("GST INVOICE", margin + leftW, y + 8, {
+    width: midW,
+    align: "center",
   });
-  doc.text(`GSTIN: ${BRAND.sellerGstin}`, PAGE_MARGIN, 110);
-  doc.text(`Phone: ${BRAND.sellerPhone} | Email: ${BRAND.sellerEmail}`, PAGE_MARGIN, 124);
-
   if (qrDataUrl) {
-    doc.image(qrDataUrl, pageWidth - PAGE_MARGIN - 85, 42, { fit: [72, 72] });
+    doc.image(qrDataUrl, margin + leftW + (midW - 64) / 2, y + 30, { fit: [64, 64] });
   }
 
-  const metaX = pageWidth - PAGE_MARGIN - 210;
-  const metaY = 130;
-  doc.roundedRect(metaX, metaY, 210, 75, 6).stroke('#d1d5db');
-  drawLabelValue(doc, 'Invoice No.', invoiceNumber, metaX + 10, metaY + 10, 70);
-  drawLabelValue(doc, 'Order ID', String(order._id || '').toUpperCase(), metaX + 10, metaY + 26, 70);
-  drawLabelValue(doc, 'Order Date', formatDate(order.createdAt), metaX + 10, metaY + 42, 70);
-  drawLabelValue(doc, 'Invoice Date', formatDate(new Date()), metaX + 10, metaY + 58, 70);
+  const rx = margin + leftW + midW + 4;
+  let ry = y + 4;
+  doc.font("Helvetica").fontSize(7).fillColor("#111111");
+  doc.text("Party Name :", rx, ry);
+  doc.font("Helvetica-Bold").text(buyer.name || "-", rx + 58, ry, { width: rightW - 64 });
+  ry += 10;
+  doc.font("Helvetica").text("", rx, ry);
+  doc.text(`${buyer.address || "-"}`, rx + 58, ry, { width: rightW - 64 });
+  ry += 9;
+  doc.text(`${[buyer.city, buyer.state].filter(Boolean).join(", ")} ${buyer.pincode}`.trim(), rx + 58, ry, { width: rightW - 64 });
+  ry += 10;
+  doc.text("PHONE. :", rx, ry);
+  doc.text(buyer.phone || "-", rx + 58, ry, { width: rightW - 64 });
+  ry += 10;
+  doc.text("GSTIN :", rx, ry);
+  doc.text(buyer.gstin || "-", rx + 58, ry, { width: rightW - 64 });
+  ry += 10;
+  doc.text("Delivery At :", rx, ry);
+  doc.text(`${buyer.city || "-"}, ${buyer.state || "-"}`.trim(), rx + 58, ry, { width: rightW - 64 });
+  ry += 10;
+  doc.text("DL NO:", rx, ry);
+  doc.text(buyer.dlNo || "-", rx + 58, ry, { width: rightW - 64 });
+  ry += 10;
+  doc.text("CSTIN:", rx, ry);
+  doc.text(buyer.cstNo || "-", rx + 58, ry, { width: rightW - 64 });
 
-  const blockTop = 220;
-  const blockW = (usableWidth - 14) / 2;
-  const buyerText = buyerLines.join('\n');
-  const shipText = formatAddress(order.shippingAddress);
+  y += topH;
 
-  doc.roundedRect(PAGE_MARGIN, blockTop, blockW, 110, 6).stroke('#d1d5db');
-  doc.roundedRect(PAGE_MARGIN + blockW + 14, blockTop, blockW, 110, 6).stroke('#d1d5db');
-  doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827').text('Bill To (Retailer)', PAGE_MARGIN + 10, blockTop + 10);
-  doc.font('Helvetica').fontSize(9).fillColor('#374151').text(buyerText, PAGE_MARGIN + 10, blockTop + 28, {
-    width: blockW - 20,
-    lineGap: 2,
-  });
-  doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827').text('Delivery Address', PAGE_MARGIN + blockW + 24, blockTop + 10);
-  doc.font('Helvetica').fontSize(9).fillColor('#374151').text(shipText, PAGE_MARGIN + blockW + 24, blockTop + 28, {
-    width: blockW - 20,
-    lineGap: 2,
-  });
+  const metaH = 58;
+  drawCell(doc, margin, y, fullW, metaH, "");
 
-  const columns = [
-    { label: 'Product', width: 126 },
-    { label: 'HSN', width: 40 },
-    { label: 'Qty', width: 28, align: 'right' },
-    { label: 'Selling (INR)', width: 62, align: 'right' },
-    { label: 'Discount (INR)', width: 62, align: 'right' },
-    { label: 'After Disc. (INR)', width: 72, align: 'right' },
-    { label: 'GST (INR)', width: 55, align: 'right' },
-    { label: 'Final (INR)', width: 70, align: 'right' },
+  const metaRows = [
+    [
+      ["Invoice No.", getInvoiceNo(order)],
+      ["L.R. No.", text(order?.lrNo || "-")],
+      ["Invoice Date", formatDate(order?.createdAt)],
+      ["L.R. Date", formatDate(order?.createdAt)],
+    ],
+    [
+      ["Order No.", getOrderNo(order)],
+      ["Cases", String(rows.length || 0)],
+      ["Transport", text(order?.transportName || "SCORPION EXPRESS")],
+      ["Total Weight", text(order?.totalWeight || `${fmt0(totalQty)} KGS`)],
+    ],
+    [
+      ["Issue Date and Time", formatDateTime(order?.createdAt)],
+      ["Removal Date and Time", formatDateTime(order?.createdAt)],
+      ["Delivery", text(order?.deliveryType || "DOOR")],
+      ["Place Of Supply", `${buyer.state || "-"}`],
+    ],
   ];
 
-  let y = ensureTableRoom(doc, blockTop + 130, 50);
-  drawTableHeader(doc, y, columns);
-  y += 24;
-
-  const printableRows = rows.length
-    ? rows
-    : [{ product: 'No products found', hsn: '-', qty: '-', sellingUnit: '-', discountUnit: '-', discountedUnit: '-', gstUnit: '-', lineTotal: '-' }];
-
-  printableRows.forEach((row) => {
-    y = ensureTableRoom(doc, y, 28);
-    if (y === PAGE_MARGIN) {
-      drawTableHeader(doc, y, columns);
-      y += 24;
-    }
-
-    doc.font('Helvetica').fontSize(9).fillColor('#111827');
-    let x = PAGE_MARGIN + 6;
-    const rowData = [
-      safeText(row.product),
-      safeText(row.hsn),
-      String(row.qty),
-      typeof row.sellingUnit === 'number' ? money(row.sellingUnit) : String(row.sellingUnit),
-      typeof row.discountUnit === 'number' ? money(row.discountUnit) : String(row.discountUnit),
-      typeof row.discountedUnit === 'number' ? money(row.discountedUnit) : String(row.discountedUnit),
-      typeof row.gstUnit === 'number' ? money(row.gstUnit) : String(row.gstUnit),
-      typeof row.lineTotal === 'number' ? money(row.lineTotal) : String(row.lineTotal),
-    ];
-
-    rowData.forEach((value, index) => {
-      const col = columns[index];
-      doc.text(String(value), x, y, {
-        width: col.width,
-        align: col.align || 'left',
+  const colW = fullW / 4;
+  const rowH = metaH / 3;
+  for (let r = 0; r < 3; r += 1) {
+    for (let c = 0; c < 4; c += 1) {
+      const cellX = margin + c * colW;
+      const cellY = y + r * rowH;
+      const pair = metaRows[r][c];
+      drawCell(doc, cellX, cellY, colW, rowH, "");
+      doc.font("Helvetica-Bold").fontSize(6.5).text(pair[0], cellX + 2, cellY + 2, { width: colW - 4, lineBreak: false });
+      doc.font("Helvetica").fontSize(6.5).text(String(pair[1] || "-"), cellX + 2, cellY + 10, {
+        width: colW - 4,
         lineBreak: false,
         ellipsis: true,
       });
-      x += col.width;
-    });
-
-    doc.moveTo(PAGE_MARGIN, y + 16).lineTo(pageWidth - PAGE_MARGIN, y + 16).stroke('#e5e7eb');
-    y += 18;
-  });
-
-  y += 8;
-  y = ensureTableRoom(doc, y, 140);
-
-  doc.font('Helvetica-Bold').fontSize(11).fillColor('#111827').text('Invoice Summary', PAGE_MARGIN, y);
-  y += 18;
-  drawLabelValue(doc, 'Total Quantity', String(totalQty), PAGE_MARGIN, y, 120);
-  y += 14;
-  drawLabelValue(doc, 'Gross Amount', money(totalGross), PAGE_MARGIN, y, 120);
-  y += 14;
-  drawLabelValue(doc, `Discount (${discountPercent.toFixed(2)}%)`, money(totalDisc), PAGE_MARGIN, y, 120);
-  y += 14;
-  drawLabelValue(doc, 'Price After Discount', money(subtotal || totalTaxable), PAGE_MARGIN, y, 120);
-  y += 14;
-  drawLabelValue(doc, `GST Amount (${gstPercent.toFixed(2)}%)`, money(orderGst), PAGE_MARGIN, y, 120);
-  y += 14;
-
-  doc.font('Helvetica-Bold').fontSize(14).fillColor('#0f172a').text(`Grand Total: ${money(grandTotal)}`, PAGE_MARGIN, y + 6);
-
-  const signY = y - 30;
-  doc.font('Helvetica-Bold').fontSize(10).text(BRAND.sellerName.toUpperCase(), pageWidth - PAGE_MARGIN - 220, signY, {
-    width: 220,
-    align: 'right',
-  });
-  if (signatureDataUrl) {
-    doc.image(signatureDataUrl, pageWidth - PAGE_MARGIN - 130, signY + 12, { fit: [110, 36] });
-  } else {
-    doc.moveTo(pageWidth - PAGE_MARGIN - 120, signY + 36).lineTo(pageWidth - PAGE_MARGIN - 20, signY + 36).stroke('#9ca3af');
-  }
-  doc.font('Helvetica').fontSize(8).fillColor('#374151').text('Authorized Signatory', pageWidth - PAGE_MARGIN - 220, signY + 54, {
-    width: 220,
-    align: 'right',
-  });
-
-  const notes = safeText(order.notes || '');
-  if (notes) {
-    doc.font('Helvetica-Oblique').fontSize(9).fillColor('#4b5563').text(`Order Note: ${notes}`, PAGE_MARGIN, doc.page.height - PAGE_MARGIN - 36, {
-      width: usableWidth,
-    });
+    }
   }
 
-  doc.font('Helvetica').fontSize(8).fillColor('#6b7280').text(
-    `Generated on ${new Date().toLocaleString()} | This is a computer-generated invoice and does not require a signature.`,
-    PAGE_MARGIN,
-    doc.page.height - PAGE_MARGIN - 16,
-    { width: usableWidth, align: 'center' },
-  );
+  y += metaH;
+
+  const columns = [
+    { key: "st", label: "St", w: 18, align: "center" },
+    { key: "hsn", label: "HSN", w: 42, align: "center" },
+    { key: "productName", label: "PRODUCT Name", w: 154, align: "left" },
+    { key: "pUnit", label: "P UNIT", w: 40, align: "center" },
+    { key: "batchNo", label: "Batch No.", w: 42, align: "center" },
+    { key: "mfg", label: "Mfg", w: 30, align: "center" },
+    { key: "exp", label: "Exp", w: 30, align: "center" },
+    { key: "mrp", label: "M.R.P.", w: 38, align: "right" },
+    { key: "ptr", label: "Ptr", w: 38, align: "right" },
+    { key: "caseWeight", label: "Weight", w: 44, align: "center" },
+    { key: "cases", label: "Cases", w: 34, align: "right" },
+    { key: "qty", label: "Quantity", w: 38, align: "right" },
+    { key: "unit", label: "Unit", w: 32, align: "center" },
+    { key: "rate", label: "Rate", w: 40, align: "right" },
+    { key: "tGst", label: "TGST", w: 36, align: "right" },
+    { key: "value", label: "Value", w: 42, align: "right" },
+    { key: "amount", label: "Amount", w: 58, align: "right" },
+  ];
+
+  const tableW = columns.reduce((s, c) => s + c.w, 0);
+  const tableX = margin;
+  const headerH = 18;
+  const lineH = 16;
+  const printableRows = rows.length ? rows : [];
+  const minRows = 12;
+  const rowCount = Math.max(minRows, printableRows.length);
+
+  drawCell(doc, tableX, y, tableW, headerH, "");
+  let cx = tableX;
+  for (const col of columns) {
+    drawCell(doc, cx, y, col.w, headerH, col.label, { font: "Helvetica-Bold", size: 7, align: "center" });
+    cx += col.w;
+  }
+
+  let tableY = y + headerH;
+  for (let i = 0; i < rowCount; i += 1) {
+    const row = printableRows[i] || {};
+    let rx = tableX;
+    for (const col of columns) {
+      let value = row[col.key] ?? "";
+      if (["mrp", "ptr", "rate", "value", "amount"].includes(col.key) && value !== "") value = fmt3(value);
+      if (col.key === "tGst" && value !== "") value = fmt3(value);
+      drawCell(doc, rx, tableY, col.w, lineH, value, { size: 6.6, align: col.align || "left" });
+      rx += col.w;
+    }
+    tableY += lineH;
+  }
+
+  y = tableY;
+
+  const sumH = 58;
+  drawCell(doc, margin, y, fullW, sumH, "");
+
+  const leftSumW = Math.round(fullW * 0.58);
+  const middleSumW = Math.round(fullW * 0.22);
+  const rightSumW = fullW - leftSumW - middleSumW;
+
+  drawCell(doc, margin, y, leftSumW, sumH, "");
+  drawCell(doc, margin + leftSumW, y, middleSumW, sumH, "");
+  drawCell(doc, margin + leftSumW + middleSumW, y, rightSumW, sumH, "");
+
+  doc.font("Helvetica-Bold").fontSize(7).text("CLASS", margin + 3, y + 3);
+  doc.text("TOTAL", margin + 70, y + 3);
+  doc.text("SCHEME", margin + 115, y + 3);
+  doc.text("DISCOUNT", margin + 167, y + 3);
+  doc.text("IGST", margin + 220, y + 3);
+
+  const gstRows = ["IGST 5.00%", "IGST 12.00%", "IGST 18.00%", "IGST 28.00%"];
+  gstRows.forEach((label, idx) => {
+    const by = y + 14 + idx * 10;
+    doc.font("Helvetica").fontSize(6.5).text(label, margin + 3, by);
+    doc.text("0.000", margin + 70, by);
+    doc.text("0.000", margin + 115, by);
+    doc.text("0.000", margin + 167, by);
+    doc.text("0.000", margin + 220, by);
+  });
+
+  doc.font("Helvetica-Bold").fontSize(7).text("TOTAL", margin + 3, y + sumH - 10);
+  doc.text("0.00", margin + 70, y + sumH - 10);
+
+  doc.font("Helvetica").fontSize(7).text(`Total Items :-      ${rows.length || 0}`, margin + leftSumW + 6, y + 10);
+  doc.text(`Total Qty    :-      ${totalQty}`, margin + leftSumW + 6, y + 22);
+
+  doc.font("Helvetica-Bold").fontSize(8).text("TOTAL", margin + leftSumW + middleSumW + 6, y + 4);
+  doc.font("Helvetica-Bold").fontSize(9).text(fmt3(totalAmount), margin + leftSumW + middleSumW + rightSumW - 6 - 50, y + 4, {
+    width: 50,
+    align: "right",
+  });
+  doc.font("Helvetica").fontSize(7).text("DIS AMT.", margin + leftSumW + middleSumW + 6, y + 18);
+  doc.text("0.00", margin + leftSumW + middleSumW + rightSumW - 56, y + 18, { width: 50, align: "right" });
+  doc.text("TGST PAYBLE", margin + leftSumW + middleSumW + 6, y + 30);
+  doc.text("0.000%", margin + leftSumW + middleSumW + 70, y + 30);
+  doc.text("0.00", margin + leftSumW + middleSumW + rightSumW - 56, y + 30, { width: 50, align: "right" });
+  doc.text("TCS @", margin + leftSumW + middleSumW + 6, y + 42);
+  doc.text("0.000", margin + leftSumW + middleSumW + rightSumW - 56, y + 42, { width: 50, align: "right" });
+
+  y += sumH;
+
+  const wordsH = 14;
+  drawCell(doc, margin, y, fullW, wordsH, "");
+  doc.font("Helvetica").fontSize(6.5).text(`Rs. ${amountToWords(totalAmount)}`, margin + 3, y + 3, {
+    width: fullW - 6,
+    lineBreak: false,
+    ellipsis: true,
+  });
+
+  y += wordsH;
+
+  const bottomH = pageH - margin - y;
+  const leftBottomW = Math.round(fullW * 0.78);
+  const rightBottomW = fullW - leftBottomW;
+
+  drawCell(doc, margin, y, leftBottomW, bottomH, "");
+  drawCell(doc, margin + leftBottomW, y, rightBottomW, bottomH, "");
+
+  const bankBlockH = Math.round(bottomH * 0.58);
+  drawCell(doc, margin, y, leftBottomW / 2, bankBlockH, "");
+  drawCell(doc, margin + leftBottomW / 2, y, leftBottomW / 2, bankBlockH, "");
+
+  doc.font("Helvetica-Bold").fontSize(8).text("OUR BANK DETAIL :-", margin + 4, y + 4);
+  doc.font("Helvetica").fontSize(7).text(`Bank Name : ${BANK.bankName}`, margin + 4, y + 16);
+  doc.text(`Branch Name : ${BANK.branch}`, margin + 4, y + 26, { width: leftBottomW / 2 - 8 });
+  doc.text(`Account No. : ${BANK.accountNo}`, margin + 4, y + 38);
+  doc.text(`IFSC Code : ${BANK.ifsc}`, margin + 4, y + 50);
+
+  doc.font("Helvetica-Bold").fontSize(8).text(`FOR  ${SELLER.name}`, margin + leftBottomW / 2 + 4, y + 4);
+  doc.font("Helvetica-Bold").fontSize(8).text("Authorised Signatory", margin + leftBottomW / 2 + 20, y + bankBlockH - 20);
+
+  const termsY = y + bankBlockH;
+  const termsH = bottomH - bankBlockH;
+  drawCell(doc, margin, termsY, leftBottomW, termsH, "");
+  doc.font("Helvetica-Bold").fontSize(8).text("Terms & Conditions", margin + 4, termsY + 4);
+  doc.font("Helvetica").fontSize(7);
+  TERMS.forEach((line, idx) => {
+    doc.text(line, margin + 4, termsY + 16 + idx * 10, { width: leftBottomW - 8 });
+  });
+
+  doc.font("Helvetica").fontSize(7).text("MARG ERP NANO TO CHANGE GPS-5601 | STOCK,ACCOUNTS,GST,E-Way bill SOFTWARE PURCHASED FROM: 9876072888, 8477063701, 8470063703", margin + 4, pageH - margin - 8, {
+    width: fullW - 8,
+    align: "center",
+    lineBreak: false,
+    ellipsis: true,
+  });
+
+  doc.font("Helvetica").fontSize(9).text("Grand Total", margin + leftBottomW + 8, y + bottomH / 2 - 16, {
+    width: rightBottomW - 16,
+    align: "center",
+  });
+  doc.font("Helvetica-Bold").fontSize(16).text(fmt2(totalAmount), margin + leftBottomW + 8, y + bottomH / 2 + 4, {
+    width: rightBottomW - 16,
+    align: "center",
+  });
 
   doc.end();
   const blob = await waitForBlob(stream);
-  triggerBrowserDownload(blob, `${invoiceNumber}.pdf`);
+  triggerBrowserDownload(blob, `${getInvoiceNo(order)}.pdf`);
+}
+
+function fmt0(value) {
+  return Math.round(toNum(value)).toString();
 }

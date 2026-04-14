@@ -13,6 +13,12 @@ import {
     getOrderStatusMeta,
 } from '@/utils/orders';
 
+const formatMoney = (value) =>
+    `₹${Number(value || 0).toLocaleString('en-IN', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    })}`;
+
 export default function OrderedProductsPage() {
     const { token, user } = useAppContext();
     const [orders, setOrders] = useState([]);
@@ -204,7 +210,7 @@ export default function OrderedProductsPage() {
                                             <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getOrderStatusClasses(item.status)}`}>
                                                 {meta.label}
                                             </span>
-                                            <p className="text-lg font-bold text-gray-900">₹{Number(item.lineTotal || 0).toLocaleString('en-IN')}</p>
+                                            <p className="text-lg font-bold text-gray-900">{formatMoney(item.lineTotal || 0)}</p>
                                             <div className="flex flex-wrap gap-2 justify-start md:justify-end">
                                                 {item.productId ? (
                                                     <Link

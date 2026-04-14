@@ -6,6 +6,24 @@ import { useAppContext } from "@/context/context";
 import { getBrandSlug } from "@/utils/product";
 import { SkeletonBrandRow } from "@/components/Skeleton";
 
+const dedupeBrands = (list) => {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const result = [];
+
+  for (const brand of list) {
+    const idKey = String(brand?._id || "").trim();
+    const nameKey = String(brand?.name || "").trim().toLowerCase();
+    const logoKey = String(brand?.logo || "").trim().toLowerCase();
+    const key = idKey || `${nameKey}|${logoKey}`;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(brand);
+  }
+
+  return result;
+};
+
 export default function BrandsPage() {
   const { getBrands, getBrandImageUrl } = useAppContext();
   const [brands, setBrands] = useState([]);
@@ -16,7 +34,7 @@ export default function BrandsPage() {
     getBrands()
       .then((res) => {
         const list = res?.data ?? (Array.isArray(res) ? res : []);
-        setBrands(list);
+        setBrands(dedupeBrands(list));
       })
       .catch(() => setBrands([]))
       .finally(() => setLoading(false));

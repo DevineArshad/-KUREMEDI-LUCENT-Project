@@ -16,6 +16,12 @@ const STATUS_STEPS = [
 
 const STATUS_ORDER = ['PENDING', 'PLACED', 'CONFIRMED', 'DISPATCHED', 'DELIVERED', 'CANCELLED'];
 
+const formatMoney = (value) =>
+  `₹${Number(value || 0).toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
 function formatDateStable(dateLike) {
   if (!dateLike) return '';
   const d = new Date(dateLike);
@@ -228,7 +234,7 @@ export default function OrdersPage() {
                     Order #{String(item._id ?? '').slice(-8).toUpperCase()}
                   </p>
                   <p className="text-sm font-semibold text-teal-700">
-                    ₹{Number(item.payableAmount ?? item.totalAmount ?? 0)}
+                    {formatMoney(item.payableAmount ?? item.totalAmount ?? 0)}
                   </p>
                 </div>
                 <p className="text-xs text-gray-400 mt-1">
