@@ -20,13 +20,13 @@ jobs:
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.EC2_HOST }}      # ✅ use same as backend
+          host: ${{ secrets.EC2_HOST }}        # ✅ SAME AS BACKEND
           username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}    # ✅ use same as backend
+          key: ${{ secrets.EC2_SSH_KEY }}      # ✅ SAME AS BACKEND
           script: |
             set -e
 
-            echo "CONNECTED TO EC2"
+            echo "CONNECTED"
 
             cd /home/ubuntu
 
@@ -63,4 +63,4 @@ jobs:
 
             sudo systemctl restart nginx
 
-            echo "Frontend deployed 🚀"
+            echo "DEPLOY DONE 🚀"
