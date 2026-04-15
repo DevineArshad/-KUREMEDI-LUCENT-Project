@@ -44,6 +44,7 @@ const items = [
       { title: "All Retailers", icon: Inbox },
       { title: "Pending Approvals", icon: FileText },
       { title: "Rejected Retailers", icon: Archive },
+      { title: "KYC History", icon: FileText },
       { title: "License Expire", icon: Settings },
     ],
   },

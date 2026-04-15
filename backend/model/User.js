@@ -65,6 +65,31 @@ const userSchema = new mongoose.Schema(
       default: "BLANK",
     },
     kycRejectionReason: { type: String, trim: true, default: "" },
+    kycHistory: [
+      {
+        status: {
+          type: String,
+          enum: ["APPROVED", "PENDING", "REJECTED", "BLANK"],
+          required: true,
+        },
+        event: {
+          type: String,
+          enum: ["SUBMITTED", "STATUS_CHANGE", "DOCS_DELETED"],
+          default: "STATUS_CHANGE",
+        },
+        rejectionReason: { type: String, trim: true, default: "" },
+        changedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        changedAt: { type: Date, default: Date.now },
+        documents: {
+          aadharDoc: { type: String, default: "" },
+          drugLicenseDoc: { type: String, default: "" },
+          gstDoc: { type: String, default: "" },
+          panDoc: { type: String, default: "" },
+          shopImage: { type: String, default: "" },
+          cancelChequeDoc: { type: String, default: "" },
+        },
+      },
+    ],
 
     adminSecurityQuestions: [
       {

@@ -15,6 +15,7 @@ import AllRetaialer from "../components/AllRetaialer";
 import PendingApprovals from "../components/PendingApprovals";
 import LicenseExpire from "../components/LicenseExpire";
 import RejectedRetailers from "../components/RejectedRetailers";
+import KycHistory from "../components/KycHistory";
 import Products from "../components/Products";
 import AllAgencies from "../components/AgencyManagement/AllAgencies";
 import Orders from "../components/OrderManagement/Orders";
@@ -146,6 +147,8 @@ const Dashboard = () => {
         return <LicenseExpire />;
       case "Rejected Retailers":
         return <RejectedRetailers />;
+      case "KYC History":
+        return <KycHistory />;
       case "All Tickets":
         return <AllTickets />;
       case "Payout Requests":

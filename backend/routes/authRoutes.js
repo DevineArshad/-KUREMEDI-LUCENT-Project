@@ -17,6 +17,7 @@ import { requireAgent } from "../middleware/requireAgent.js";
 import { sendOtpSms } from "../utils/smsService.js";
 import { sendEmail } from "../utils/mailer.js";
 import { uploadFileToCloudinary } from "../utils/cloudinaryUpload.js";
+import { deleteCloudinaryAssetByUrl } from "../utils/cloudinaryUpload.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = express.Router();
@@ -78,6 +79,34 @@ const ADMIN_SECURITY_QUESTION_OPTIONS = [
 const GST_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 const ACCOUNT_NUMBER_REGEX = /^[0-9]{9,18}$/;
+const KYC_DOCUMENT_FIELDS = [
+  "aadharDoc",
+  "drugLicenseDoc",
+  "gstDoc",
+  "panDoc",
+  "shopImage",
+  "cancelChequeDoc",
+];
+
+const buildKycDocumentsSnapshot = (entity) =>
+  KYC_DOCUMENT_FIELDS.reduce((acc, field) => {
+    acc[field] = String(entity?.[field] || "").trim();
+    return acc;
+  }, {});
+
+const recordKycHistory = async ({ user, status, event, rejectionReason = "", changedBy = null }) => {
+  if (!user) return;
+  user.kycHistory = Array.isArray(user.kycHistory) ? user.kycHistory : [];
+  user.kycHistory.push({
+    status,
+    event,
+    rejectionReason: String(rejectionReason || "").trim(),
+    changedBy: changedBy || undefined,
+    changedAt: new Date(),
+    documents: buildKycDocumentsSnapshot(user),
+  });
+};
+
 const stripPassword = (user) => {
   const userObj = user.toObject();
   delete userObj.password;
@@ -1206,6 +1235,12 @@ router.put(
       if (cancelChequeDocUrl) user.cancelChequeDoc = cancelChequeDocUrl;
 
       user.kyc = "PENDING";
+      await recordKycHistory({
+        user,
+        status: "PENDING",
+        event: "SUBMITTED",
+        changedBy: req.user?._id,
+      });
       await user.save();
 
       const agent = await Agent.findOne({ user: user._id });
@@ -1458,6 +1493,13 @@ router.put("/kyc-status/:userId", protect, authorizeRoles("admin"), async (req, 
     user.kyc = status;
     user.isVerified = status === "APPROVED";
     user.kycRejectionReason = status === "REJECTED" ? rejectionReason : "";
+    await recordKycHistory({
+      user,
+      status,
+      event: "STATUS_CHANGE",
+      rejectionReason,
+      changedBy: req.user?._id,
+    });
     await user.save();
 
     // Referral rewards when KYC approved first time (referee = user whose KYC was just approved)
@@ -1730,5 +1772,91 @@ router.post(
     }
   }
 );
+
+// ----------------------
+// KYC history with document links (admin only)
+// ----------------------
+router.get("/kyc-history", protect, authorizeRoles("admin"), async (req, res) => {
+  try {
+    const users = await User.find({ role: { $in: ["user", "agent"] } })
+      .select(
+        "name email phone role kyc kycRejectionReason updatedAt createdAt aadharDoc drugLicenseDoc gstDoc panDoc shopImage cancelChequeDoc kycHistory"
+      )
+      .populate("kycHistory.changedBy", "name email phone role")
+      .sort({ updatedAt: -1 });
+
+    const payload = users.map((user) => {
+      const docs = buildKycDocumentsSnapshot(user);
+      const hasAnyDocument = Object.values(docs).some(Boolean);
+      const history = Array.isArray(user.kycHistory)
+        ? [...user.kycHistory].sort(
+            (a, b) => new Date(b?.changedAt || 0).getTime() - new Date(a?.changedAt || 0).getTime()
+          )
+        : [];
+
+      return {
+        _id: user._id,
+        name: user.name || "",
+        email: user.email || "",
+        phone: user.phone || "",
+        role: user.role || "user",
+        currentStatus: user.kyc || "BLANK",
+        currentRejectionReason: user.kycRejectionReason || "",
+        hasAnyDocument,
+        documents: docs,
+        history,
+        updatedAt: user.updatedAt,
+        createdAt: user.createdAt,
+      };
+    });
+
+    res.json({ success: true, users: payload });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to fetch KYC history" });
+  }
+});
+
+// ----------------------
+// Delete all KYC documents for a user (admin only)
+// ----------------------
+router.delete("/kyc-documents/:userId", protect, authorizeRoles("admin"), async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const previousDocuments = buildKycDocumentsSnapshot(user);
+    const deletions = await Promise.all(
+      KYC_DOCUMENT_FIELDS.map(async (field) => {
+        const value = String(user?.[field] || "").trim();
+        if (!value) return { field, deleted: false, reason: "empty" };
+        const result = await deleteCloudinaryAssetByUrl(value);
+        user[field] = "";
+        return { field, ...result };
+      })
+    );
+
+    await recordKycHistory({
+      user,
+      status: user.kyc || "BLANK",
+      event: "DOCS_DELETED",
+      rejectionReason: "KYC documents deleted by admin",
+      changedBy: req.user?._id,
+    });
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: "KYC documents deleted",
+      previousDocuments,
+      deletions,
+      user: stripPassword(user),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to delete KYC documents" });
+  }
+});
 
 export default router;

@@ -1019,6 +1019,92 @@ export const ContextProvider = ({ children }) => {
     }
   };
 
+  const getKycHistory = async () => {
+    try {
+      const response = await axios.get(`${BASE_URL}/auth/kyc-history`, {
+        headers: getAuthHeaders(),
+      });
+      return response.data;
+    } catch (error) {
+      const statusCode = Number(error?.response?.status || 0);
+      const message = String(error?.response?.data?.message || error?.message || "").toLowerCase();
+      const isMissingRoute = statusCode === 404 || message.includes("route not found");
+
+      if (!isMissingRoute) {
+        console.error("❌ Error fetching KYC history:", error.response?.data || error);
+        throw error;
+      }
+
+      // Backward compatibility: derive minimal history from /auth/users when /auth/kyc-history is not deployed.
+      const usersResponse = await axios.get(`${BASE_URL}/auth/users`, {
+        headers: getAuthHeaders(),
+      });
+      const users = Array.isArray(usersResponse?.data?.users)
+        ? usersResponse.data.users
+        : Array.isArray(usersResponse?.data)
+        ? usersResponse.data
+        : [];
+
+      const mapUserToKycHistory = (user) => {
+        const docs = {
+          aadharDoc: String(user?.aadharDoc || ""),
+          drugLicenseDoc: String(user?.drugLicenseDoc || ""),
+          gstDoc: String(user?.gstDoc || ""),
+          panDoc: String(user?.panDoc || ""),
+          shopImage: String(user?.shopImage || ""),
+          cancelChequeDoc: String(user?.cancelChequeDoc || ""),
+        };
+
+        return {
+          _id: user?._id,
+          name: user?.name || "",
+          email: user?.email || "",
+          phone: user?.phone || "",
+          role: user?.role || "user",
+          currentStatus: user?.kyc || "BLANK",
+          currentRejectionReason: user?.kycRejectionReason || "",
+          hasAnyDocument: Object.values(docs).some(Boolean),
+          documents: docs,
+          history: [
+            {
+              status: user?.kyc || "BLANK",
+              event: "LEGACY_SNAPSHOT",
+              rejectionReason: user?.kycRejectionReason || "",
+              changedAt: user?.updatedAt || user?.createdAt || new Date().toISOString(),
+              changedBy: null,
+            },
+          ],
+          updatedAt: user?.updatedAt,
+          createdAt: user?.createdAt,
+        };
+      };
+
+      return {
+        success: true,
+        users: users.map(mapUserToKycHistory),
+        fallback: true,
+      };
+    }
+  };
+
+  const deleteAllKycDocuments = async (userId) => {
+    try {
+      const response = await axios.delete(`${BASE_URL}/auth/kyc-documents/${userId}`, {
+        headers: getAuthHeaders(),
+      });
+      return response.data;
+    } catch (error) {
+      const statusCode = Number(error?.response?.status || 0);
+      const message = String(error?.response?.data?.message || error?.message || "").toLowerCase();
+      const isMissingRoute = statusCode === 404 || message.includes("route not found");
+      if (isMissingRoute) {
+        throw new Error("Delete endpoint not deployed on backend yet. Please deploy latest backend.");
+      }
+      console.error("❌ Error deleting KYC documents:", error.response?.data || error);
+      throw error;
+    }
+  };
+
   const getAuthHeaders = () => {
     const token = localStorage.getItem("adminToken");
     return token ? { Authorization: `Bearer ${token}` } : {};
@@ -1317,6 +1403,8 @@ export const ContextProvider = ({ children }) => {
         setSelectedOrderId,
         getOrderById,
         updateKYCStatus,
+        getKycHistory,
+        deleteAllKycDocuments,
         updateBlog, getAllUsers, deleteUser, blockUser, getDeletedUsersHistory, kycStatusUpdate, updateUserKYCStatus,
         changeAdminPassword, verifyAdminSecurityPassword, getAdminSecurityQuestions, updateAdminSecurityQuestions, requestAdminEmailChangeOldOtp, verifyAdminEmailChangeOldOtp, verifyAdminEmailChangeNewOtp, getMyProfile, getAdminUsers, createAdminUser, deleteAdminUser,
         deleteBlog, fetchblogCategories, addblogCategory, updateblogCategory, deleteblogCategory, enquiries, addEnquiry, updateEnquiry, deleteEnquiry, fetchEnquiries, user, login, getallOrders, createProducts, createProductWithFormData, updateProductWithFormData, updateProducts, deleteProducts, bulkImportProducts, deletesubcategory, createsubcategory, updatesubcategory, updateOrderStatus, generateOrderAwb, getAllEnquiries, logout, activeTab, setActiveTab, GetSubCategoryData, GetCategoryData, AddCategoryData, createCategoryWithFormData, updateCategoryWithFormData, uploadImage, UpdateCategoryData, DeleteCategory, getBrands, createBrand, createBrandWithFormData, updateBrand, updateBrandWithFormData, deleteBrand, getReferralAmount, setReferralAmount, getReferralRewards, setReferralRewards,

@@ -45,3 +45,54 @@ export const uploadFileToCloudinary = async (file, options = {}) => {
     await cleanupLocalFile(file.path);
   }
 };
+
+const deriveCloudinaryPublicId = (url) => {
+  const raw = String(url || "").trim();
+  if (!raw || !raw.includes("res.cloudinary.com") || !raw.includes("/upload/")) {
+    return null;
+  }
+
+  const marker = "/upload/";
+  const markerIndex = raw.indexOf(marker);
+  if (markerIndex < 0) return null;
+
+  let tail = raw.slice(markerIndex + marker.length);
+  const queryIndex = tail.indexOf("?");
+  if (queryIndex >= 0) tail = tail.slice(0, queryIndex);
+
+  tail = tail.replace(/^v\d+\//, "");
+
+  const extIndex = tail.lastIndexOf(".");
+  if (extIndex > 0) {
+    tail = tail.slice(0, extIndex);
+  }
+
+  return tail || null;
+};
+
+export const deleteCloudinaryAssetByUrl = async (url) => {
+  const publicId = deriveCloudinaryPublicId(url);
+  if (!publicId) {
+    return { deleted: false, reason: "not_cloudinary_or_invalid_url" };
+  }
+
+  const cloudinary = ensureCloudinaryConfigured();
+  const resourceTypes = ["image", "raw", "video"];
+
+  for (const resourceType of resourceTypes) {
+    try {
+      const response = await cloudinary.uploader.destroy(publicId, {
+        resource_type: resourceType,
+        invalidate: true,
+      });
+      const result = String(response?.result || "").toLowerCase();
+      if (result === "ok" || result === "not found") {
+        return { deleted: true, publicId, resourceType, result };
+      }
+    } catch (error) {
+      // Try next resource type.
+    }
+  }
+
+  return { deleted: false, publicId, reason: "destroy_failed" };
+};
