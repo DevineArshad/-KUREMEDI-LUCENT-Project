@@ -14,6 +14,28 @@ const ACCOUNT_NUMBER_REGEX = /^[0-9]{9,18}$/;
 const IMAGE_COMPRESS_THRESHOLD_BYTES = 700 * 1024;
 const IMAGE_MAX_DIMENSION = 1600;
 const IMAGE_COMPRESS_QUALITY = 0.8;
+const KYC_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+const KYC_ALLOWED_FILE_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
+
+function formatMegabytes(bytes) {
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function getMaxFileSizeLabel() {
+  return `${Math.round(KYC_MAX_FILE_SIZE_BYTES / (1024 * 1024))}MB`;
+}
+
+function validateKycFile(file, fieldLabel) {
+  if (!file) return '';
+  const mime = String(file.type || '').toLowerCase();
+  if (mime && !KYC_ALLOWED_FILE_TYPES.has(mime)) {
+    return `${fieldLabel}: only PDF, JPG, or PNG is allowed`;
+  }
+  if (Number(file.size || 0) > KYC_MAX_FILE_SIZE_BYTES) {
+    return `${fieldLabel}: file is too large (${formatMegabytes(file.size)}). Please upload a file less than ${getMaxFileSizeLabel()}.`;
+  }
+  return '';
+}
 
 function readFileAsDataURL(file) {
   return new Promise((resolve, reject) => {
@@ -241,6 +263,25 @@ function KycPageInner() {
         maybeCompressImageFile(cancelChequeFile),
       ]);
 
+      const postCompressErrors = {
+        drugLicenseFile: validateKycFile(optimizedDrugLicenseFile, 'Drug license document'),
+        gstFile: validateKycFile(optimizedGstFile, 'GST certificate'),
+        shopPhotoFile: validateKycFile(optimizedShopPhotoFile, 'Shop photo'),
+        cancelChequeFile: validateKycFile(optimizedCancelChequeFile, 'Cancel cheque / passbook'),
+      };
+      const hasPostCompressError = Object.values(postCompressErrors).some(Boolean);
+      if (hasPostCompressError) {
+        setErrors((prev) => ({
+          ...prev,
+          drugLicenseFile: postCompressErrors.drugLicenseFile || prev.drugLicenseFile || '',
+          gstFile: postCompressErrors.gstFile || '',
+          shopPhotoFile: postCompressErrors.shopPhotoFile || '',
+          cancelChequeFile: postCompressErrors.cancelChequeFile || prev.cancelChequeFile || '',
+        }));
+        showToast(Object.values(postCompressErrors).find(Boolean) || 'One or more files are invalid', 'error');
+        return;
+      }
+
       // Append Text Data
       formData.append('drugLicenseNumber', drugLicenseNumber.trim());
       formData.append('gstNumber', gstNumber.trim().toUpperCase());
@@ -276,7 +317,7 @@ function KycPageInner() {
       const isTimeoutError = /abort|timed out|timeout/i.test(rawMsg);
 
       const msg = (err?.status === 413
-        ? 'KYC files are too large. Please upload smaller/compressed files and try again.'
+        ? `KYC files are too large. Please upload files less than ${getMaxFileSizeLabel()} each and try again.`
         : null)
         || (isTimeoutError
           ? 'Upload timed out. Please use smaller files and try again.'
@@ -328,7 +369,12 @@ function KycPageInner() {
               <input
                 type="file"
                 accept=".pdf,.jpg,.jpeg,.png"
-                onChange={(e) => { setDrugLicenseFile(e.target.files[0]); setErrors((p) => ({ ...p, drugLicenseFile: '' })); }}
+                onChange={(e) => {
+                  const selected = e.target.files?.[0] || null;
+                  const message = validateKycFile(selected, 'Drug license document');
+                  setDrugLicenseFile(message ? null : selected);
+                  setErrors((p) => ({ ...p, drugLicenseFile: message }));
+                }}
                 className={"w-full text-sm text-gray-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100 cursor-pointer " + (errors.drugLicenseFile ? "ring-2 ring-red-500 rounded-lg border-red-500" : "")}
               />
               {errors.drugLicenseFile && <p className="text-red-500 text-sm mt-1">{errors.drugLicenseFile}</p>}
@@ -352,7 +398,12 @@ function KycPageInner() {
               <input
                 type="file"
                 accept=".pdf,.jpg,.jpeg,.png"
-                onChange={(e) => setGstFile(e.target.files[0])}
+                onChange={(e) => {
+                  const selected = e.target.files?.[0] || null;
+                  const message = validateKycFile(selected, 'GST certificate');
+                  setGstFile(message ? null : selected);
+                  setErrors((p) => ({ ...p, gstFile: message }));
+                }}
                 className="w-full text-sm text-gray-500
                   file:mr-4 file:py-2.5 file:px-4
                   file:rounded-full file:border-0
@@ -360,6 +411,7 @@ function KycPageInner() {
                   file:bg-teal-50 file:text-teal-700
                   hover:file:bg-teal-100 cursor-pointer"
               />
+              {errors.gstFile && <p className="text-red-500 text-sm mt-1">{errors.gstFile}</p>}
             </div>
           </div>
 
@@ -369,7 +421,12 @@ function KycPageInner() {
             <input
               type="file"
               accept=".pdf,.jpg,.jpeg,.png"
-              onChange={(e) => setShopPhotoFile(e.target.files[0])}
+              onChange={(e) => {
+                const selected = e.target.files?.[0] || null;
+                const message = validateKycFile(selected, 'Shop photo');
+                setShopPhotoFile(message ? null : selected);
+                setErrors((p) => ({ ...p, shopPhotoFile: message }));
+              }}
               className="w-full text-sm text-gray-500
                   file:mr-4 file:py-2.5 file:px-4
                   file:rounded-full file:border-0
@@ -377,6 +434,7 @@ function KycPageInner() {
                   file:bg-teal-50 file:text-teal-700
                   hover:file:bg-teal-100 cursor-pointer"
             />
+            {errors.shopPhotoFile && <p className="text-red-500 text-sm mt-1">{errors.shopPhotoFile}</p>}
           </div>
 
           {/* Bank Details */}
@@ -432,7 +490,12 @@ function KycPageInner() {
                 <input
                   type="file"
                   accept=".pdf,.jpg,.jpeg,.png"
-                  onChange={(e) => { setCancelChequeFile(e.target.files[0]); setErrors((p) => ({ ...p, cancelChequeFile: '' })); }}
+                  onChange={(e) => {
+                    const selected = e.target.files?.[0] || null;
+                    const message = validateKycFile(selected, 'Cancel cheque / passbook');
+                    setCancelChequeFile(message ? null : selected);
+                    setErrors((p) => ({ ...p, cancelChequeFile: message }));
+                  }}
                   className="w-full text-sm text-gray-500
                     file:mr-4 file:py-2.5 file:px-4
                     file:rounded-full file:border-0

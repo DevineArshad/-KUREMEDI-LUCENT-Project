@@ -34,8 +34,24 @@ const storage = multer.diskStorage({
     cb(null, name);
   },
 });
+const KYC_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+const KYC_ALLOWED_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+]);
 const upload = multer({
   storage,
+  limits: {
+    fileSize: KYC_MAX_FILE_SIZE_BYTES,
+    files: 6,
+  },
+  fileFilter: (req, file, cb) => {
+    if (KYC_ALLOWED_MIME_TYPES.has(String(file.mimetype || "").toLowerCase())) {
+      return cb(null, true);
+    }
+    return cb(new Error("Only PDF, JPG, and PNG files are allowed for KYC uploads"));
+  },
 });
 
 const generateToken = (payload, expiresIn = "7d") =>
