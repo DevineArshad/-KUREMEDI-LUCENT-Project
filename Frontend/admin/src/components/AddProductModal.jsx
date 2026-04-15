@@ -127,6 +127,7 @@ const AddProductModal = ({ onClose, onSuccess, productId, product }) => {
         productName: "",
         mrp: "",
         sellingPrice: "",
+        weight: "",
         composition: "",
         ingredients: "",
         keyUses: "",
@@ -175,6 +176,7 @@ const AddProductModal = ({ onClose, onSuccess, productId, product }) => {
                         productName: item.productName || "",
                         mrp: item.mrp || "",
                         sellingPrice: item.sellingPrice || "",
+                        weight: item.weight ?? "",
                         composition: item.composition || "",
                         ingredients: item.ingredients || "",
                         keyUses: item.keyUses || "",
@@ -206,6 +208,7 @@ const AddProductModal = ({ onClose, onSuccess, productId, product }) => {
                         productName: "",
                         mrp: "",
                         sellingPrice: "",
+                        weight: "",
                         composition: "",
                         ingredients: "",
                         keyUses: "",
@@ -335,6 +338,7 @@ const AddProductModal = ({ onClose, onSuccess, productId, product }) => {
         fd.append("productName", formData.productName.trim());
         fd.append("mrp", String(formData.mrp || 0));
         fd.append("sellingPrice", String(formData.sellingPrice || 0));
+        fd.append("weight", String(formData.weight || 0));
         fd.append("composition", formData.composition || "");
         fd.append("ingredients", formData.ingredients || "");
         fd.append("keyUses", formData.keyUses || "");
@@ -372,6 +376,7 @@ const AddProductModal = ({ onClose, onSuccess, productId, product }) => {
         const productName = formData.productName?.trim();
         const sellingPrice = Number(formData.sellingPrice);
         const mrp = Number(formData.mrp);
+        const weight = Number(formData.weight);
         const category = formData.category;
         const brand = formData.brand;
         const discount = Number(formData.discount || 0);
@@ -389,6 +394,8 @@ const AddProductModal = ({ onClose, onSuccess, productId, product }) => {
             errs.push("Selling price is required and must be a valid number.");
         if (mrp === undefined || mrp === "" || isNaN(mrp) || mrp < 0)
             errs.push("MRP is required and must be a valid number.");
+        if (weight === undefined || formData.weight === "" || isNaN(weight) || weight <= 0)
+            errs.push("Weight (kg) is required and must be greater than 0.");
         if (!isNaN(sellingPrice) && !isNaN(mrp) && sellingPrice > mrp)
             errs.push("Selling price cannot be greater than MRP.");
         if (isNaN(discount) || discount < 0 || discount > 100)
@@ -576,6 +583,17 @@ const AddProductModal = ({ onClose, onSuccess, productId, product }) => {
                         <div className="grid grid-cols-2 gap-4">
                             <InputField label="MRP" name="mrp" type="number" value={formData.mrp} onChange={handleChange} required />
                             <InputField label="Selling Price" name="sellingPrice" type="number" value={formData.sellingPrice} onChange={handleChange} required />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <InputField
+                                label="Weight (kg)"
+                                name="weight"
+                                type="number"
+                                value={formData.weight}
+                                onChange={handleChange}
+                                placeholder="e.g. 0.5"
+                                required
+                            />
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <InputField label="Discount %" name="discount" type="number" value={formData.discount} onChange={handleChange} />

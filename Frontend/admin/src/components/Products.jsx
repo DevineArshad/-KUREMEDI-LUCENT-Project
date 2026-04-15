@@ -186,6 +186,7 @@ const Products = () => {
                 <th className="text-left py-3">Category</th>
                 <th className="text-left py-3">MRP</th>
                 <th className="text-left py-3">Final Price</th>
+                <th className="text-left py-3">Weight</th>
                 <th className="text-left py-3">GST</th>
                 <th className="text-left py-3">Stock</th>
                 <th className="text-left py-3">Batch</th>
@@ -196,7 +197,7 @@ const Products = () => {
             <tbody>
               {loading && Array.from({ length: 5 }).map((_, idx) => (
                 <tr key={idx}>
-                  {Array.from({ length: 10 }).map((__, cidx) => (
+                  {Array.from({ length: 11 }).map((__, cidx) => (
                     <td key={cidx} className="py-3">
                       <div className="h-4 bg-gray-200 rounded animate-pulse w-full"></div>
                     </td>
@@ -206,7 +207,7 @@ const Products = () => {
 
               {!loading && paginatedProducts.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="text-center py-8 text-gray-500">No products found</td>
+                  <td colSpan={11} className="text-center py-8 text-gray-500">No products found</td>
                 </tr>
               )}
 
@@ -240,6 +241,7 @@ const Products = () => {
                     <td className="py-3">{typeof p.category === "object" ? p.category?.name : p.category || "-"}</td>
                     <td className="py-3">₹{p.mrp ?? "-"}</td>
                     <td className="py-3 font-semibold">₹{price ?? "-"}</td>
+                    <td className="py-3">{Number(p.weight) > 0 ? `${Number(p.weight).toFixed(2)} kg` : "-"}</td>
                     <td className="py-3">{gstPercent}% ({gstMode})</td>
                     <td className="py-3" title={`Min: ${minStock}`}>{stock}</td>
                     <td className="py-3">{p.batchNumber}</td>
@@ -283,7 +285,7 @@ const Products = () => {
 
       {/* Delete Confirmation */}
       {deleteId && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-2xl animate-in fade-in zoom-in duration-200">
             <div className="flex items-center gap-3 text-red-600 mb-4">
               <AlertTriangle size={24} />
