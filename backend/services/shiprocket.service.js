@@ -320,7 +320,43 @@ const getPickupLocations = async () => {
 };
 
 const getPickupLocation = (payload) =>
-  normalizeText(payload?.pickup_location || payload?.pickupLocation || process.env.SHIPROCKET_PICKUP_LOCATION || "Main");
+  normalizeText(
+    payload?.pickup_location ||
+      payload?.pickupLocation ||
+      process.env.SHIPROCKET_PICKUP_LOCATION ||
+      process.env.PICKUP_LOCATION ||
+      "Main",
+  );
+
+const extractPickupLocationsFromError = (error) => {
+  const payload = error?.response?.data || {};
+  const candidates = [];
+
+  const pushCandidate = (value) => {
+    const text = normalizeText(value);
+    if (text) candidates.push(text);
+  };
+
+  const scan = (node) => {
+    if (!node) return;
+    if (Array.isArray(node)) {
+      for (const item of node) scan(item);
+      return;
+    }
+    if (typeof node !== "object") return;
+
+    pushCandidate(node.pickup_location);
+    pushCandidate(node.pickupLocation);
+    pushCandidate(node.name);
+
+    for (const value of Object.values(node)) {
+      if (value && typeof value === "object") scan(value);
+    }
+  };
+
+  scan(payload);
+  return [...new Set(candidates)];
+};
 
 const buildPayload = (orderDoc = {}) => {
   const shippingAddress = orderDoc.shippingAddress || {};
@@ -441,7 +477,9 @@ export const createShiprocketOrder = async (orderPayload, options = {}) => {
       throw raiseShiprocketError("create_order", error, "Failed to create Shiprocket order");
     }
 
-    const fallbackLocations = await getPickupLocations();
+    const fallbackFromError = extractPickupLocationsFromError(error);
+    const fallbackFromApi = await getPickupLocations();
+    const fallbackLocations = [...new Set([...fallbackFromError, ...fallbackFromApi])];
     const fallbackPickup = fallbackLocations.find((location) => location && location !== desiredPickup) || fallbackLocations[0];
 
     if (!fallbackPickup) {
