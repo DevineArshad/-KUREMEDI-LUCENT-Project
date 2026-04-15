@@ -19,6 +19,7 @@ import brandRoutes from "./routes/brand.routes.js";
 import cartRoutes from "./routes/cart.routes.js";
 import orderRoutes from "./routes/order.routes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
+import webhookRoutes from "./routes/webhook.routes.js";
 import addressRoutes from "./routes/address.routes.js";
 import walletRoutes from "./routes/wallet.routes.js";
 import configRoutes from "./routes/config.routes.js";
@@ -106,6 +107,7 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/orders", orderRoutes);
 
 app.use("/api/payment", paymentRoutes);
+app.use("/api/webhook", webhookRoutes);
 app.use("/api/addresses", addressRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/config", configRoutes);
