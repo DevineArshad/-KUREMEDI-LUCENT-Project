@@ -35,7 +35,23 @@ router.get("/orders", async (req, res) => {
       .populate({ path: "items.product", populate: { path: "category", select: "name" } })
       .sort({ createdAt: -1 });
 
-    const mapped = orders.map((o) => ({
+    // Do not show unpaid online checkout attempts on admin dashboard.
+    const visibleOrders = orders.filter((o) => {
+      const status = String(o.status || "").toUpperCase();
+      const paymentMethod = String(o.paymentMethod || "").toUpperCase();
+      const razorpayAmount = Number(o.razorpayAmount || 0);
+      const paymentRef = String(o.razorpayPaymentId || "").trim();
+
+      const isUnpaidOnlinePending =
+        paymentMethod === "ONLINE" &&
+        status === "PENDING" &&
+        razorpayAmount > 0 &&
+        !paymentRef;
+
+      return !isUnpaidOnlinePending;
+    });
+
+    const mapped = visibleOrders.map((o) => ({
       
       _id: o._id,
       orderDate: o.createdAt,
