@@ -16,6 +16,7 @@ import { authorizeRoles } from "../middleware/authorize.js";
 import { requireAgent } from "../middleware/requireAgent.js";
 import { sendOtpSms } from "../utils/smsService.js";
 import { sendEmail } from "../utils/mailer.js";
+import { uploadFileToCloudinary } from "../utils/cloudinaryUpload.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = express.Router();
@@ -1173,18 +1174,36 @@ router.put(
       if (normalizedAccountHolderName) user.accountHolderName = normalizedAccountHolderName;
       if (normalizedAccountNumber) user.accountNumber = normalizedAccountNumber;
       if (normalizedIfscCode) user.ifscCode = normalizedIfscCode;
-      if (files?.aadharDoc)
-        user.aadharDoc = `kyc/${files.aadharDoc[0].filename}`;
-      if (files?.drugLicenseDoc)
-        user.drugLicenseDoc = `kyc/${files.drugLicenseDoc[0].filename}`;
-      if (files?.gstDoc)
-        user.gstDoc = `kyc/${files.gstDoc[0].filename}`;
-      if (files?.panDoc)
-        user.panDoc = `kyc/${files.panDoc[0].filename}`;
-      if (files?.shopImage)
-        user.shopImage = `kyc/${files.shopImage[0].filename}`;
-      if (files?.cancelChequeDoc)
-        user.cancelChequeDoc = `kyc/${files.cancelChequeDoc[0].filename}`;
+
+      const kycFolder = `lucent/kyc/${String(user._id)}`;
+      const maybeUploadKycFile = async (fieldName) => {
+        const selectedFile = files?.[fieldName]?.[0];
+        if (!selectedFile) return null;
+        return uploadFileToCloudinary(selectedFile, { folder: kycFolder });
+      };
+
+      const [
+        aadharDocUrl,
+        drugLicenseDocUrl,
+        gstDocUrl,
+        panDocUrl,
+        shopImageUrl,
+        cancelChequeDocUrl,
+      ] = await Promise.all([
+        maybeUploadKycFile("aadharDoc"),
+        maybeUploadKycFile("drugLicenseDoc"),
+        maybeUploadKycFile("gstDoc"),
+        maybeUploadKycFile("panDoc"),
+        maybeUploadKycFile("shopImage"),
+        maybeUploadKycFile("cancelChequeDoc"),
+      ]);
+
+      if (aadharDocUrl) user.aadharDoc = aadharDocUrl;
+      if (drugLicenseDocUrl) user.drugLicenseDoc = drugLicenseDocUrl;
+      if (gstDocUrl) user.gstDoc = gstDocUrl;
+      if (panDocUrl) user.panDoc = panDocUrl;
+      if (shopImageUrl) user.shopImage = shopImageUrl;
+      if (cancelChequeDocUrl) user.cancelChequeDoc = cancelChequeDocUrl;
 
       user.kyc = "PENDING";
       await user.save();
@@ -1200,11 +1219,11 @@ router.put(
         agent.accountNumber = user.accountNumber;
         agent.ifscCode = user.ifscCode;
         agent.kycStatus = "PENDING";
-        if (files?.aadharDoc) agent.aadharDoc = `kyc/${files.aadharDoc[0].filename}`;
-        if (files?.panDoc) agent.panDoc = `kyc/${files.panDoc[0].filename}`;
-        if (files?.cancelChequeDoc) agent.cancelChequeDoc = `kyc/${files.cancelChequeDoc[0].filename}`;
-        if (files?.drugLicenseDoc) agent.drugLicenseDoc = `kyc/${files.drugLicenseDoc[0].filename}`;
-        if (files?.gstDoc) agent.gstDoc = `kyc/${files.gstDoc[0].filename}`;
+        if (aadharDocUrl) agent.aadharDoc = aadharDocUrl;
+        if (panDocUrl) agent.panDoc = panDocUrl;
+        if (cancelChequeDocUrl) agent.cancelChequeDoc = cancelChequeDocUrl;
+        if (drugLicenseDocUrl) agent.drugLicenseDoc = drugLicenseDocUrl;
+        if (gstDocUrl) agent.gstDoc = gstDocUrl;
         await agent.save();
       }
 

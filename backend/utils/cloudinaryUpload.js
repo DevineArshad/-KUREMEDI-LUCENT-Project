@@ -29,3 +29,19 @@ export const uploadImagesToCloudinary = async (files = [], options = {}) => {
   );
   return values.filter(Boolean);
 };
+
+export const uploadFileToCloudinary = async (file, options = {}) => {
+  if (!file?.path) return null;
+
+  const cloudinary = ensureCloudinaryConfigured();
+
+  try {
+    const result = await cloudinary.uploader.upload(file.path, {
+      resource_type: "auto",
+      folder: options.folder || "lucent/uploads",
+    });
+    return result?.secure_url || null;
+  } finally {
+    await cleanupLocalFile(file.path);
+  }
+};
