@@ -1381,9 +1381,27 @@ export const updateOrderStatus = async (req, res) => {
 
     if (fields.status) {
       const requestedStatus = String(fields.status || "").toUpperCase();
-      const allowed = ["PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED", "REFUNDED"];
+      const allowed = ["PENDING", "PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED", "REFUNDED"];
       if (!allowed.includes(requestedStatus)) {
         return res.status(400).json({ message: "Invalid status" });
+      }
+
+      const orderPaymentMethod = String(order.paymentMethod || "").toUpperCase();
+      const hasGatewayAmount = Number(order.razorpayAmount || 0) > 0;
+      const hasCapturedGatewayPayment = Boolean(String(order.razorpayPaymentId || "").trim());
+
+      if (
+        previousStatus === "PENDING" &&
+        orderPaymentMethod === "ONLINE" &&
+        hasGatewayAmount &&
+        !hasCapturedGatewayPayment &&
+        ["PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED"].includes(requestedStatus)
+      ) {
+        return res.status(400).json({
+          message:
+            "Cannot mark this order as placed/processed before payment capture. Complete Razorpay payment first or cancel the order.",
+          code: "UNPAID_ONLINE_ORDER",
+        });
       }
 
       // Keep refunds system-driven. Admin should trigger CANCELLED and backend promotes to REFUNDED on success.

@@ -16,6 +16,7 @@ const TABS = [
 ];
 
 const STATUS_OPTIONS = [
+  "PENDING",
   "PLACED",
   "CONFIRMED",
   "DISPATCHED",
@@ -236,7 +237,7 @@ const Orders = () => {
                     .slice(0, 2)
                     .map((i) => i.name || i.productId?.name || "Item")
                     .join(", ") || "-";
-                const status = (order.status || "PLACED").toUpperCase();
+                const status = (order.status || "PENDING").toUpperCase();
                 const isUpdating = updatingId === order._id;
 
                 return (
