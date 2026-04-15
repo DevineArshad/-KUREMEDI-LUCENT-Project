@@ -155,7 +155,7 @@ const orderSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-orderSchema.pre("save", function (next) {
+orderSchema.pre("save", async function () {
   if (!this.orderId && this._id) {
     this.orderId = this._id.toString();
   }
@@ -163,8 +163,6 @@ orderSchema.pre("save", function (next) {
   if (!this.orderStatus && this.status) {
     this.orderStatus = this.status;
   }
-
-  next();
 });
 
 const Order = mongoose.models.Order || mongoose.model("Order", orderSchema);
