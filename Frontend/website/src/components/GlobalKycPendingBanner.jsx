@@ -2,16 +2,19 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { ShieldAlert, X } from 'lucide-react';
 import { useAppContext } from '@/context/context';
 
 const DISMISS_KEY = 'kyc-prompt-dismissed-at';
-const REMIND_AFTER_MS = 30 * 1000;
+const REMIND_AFTER_MS = 60 * 1000;
 
 export default function GlobalKycPendingBanner() {
   const { token, user, refreshUser } = useAppContext();
+  const pathname = usePathname();
   const [dismissedAt, setDismissedAt] = useState(null);
   const [isOpen, setIsOpen] = useState(false);
+  const isOnKycPage = pathname === '/kyc';
 
   useEffect(() => {
     if (!token) return;
@@ -25,7 +28,7 @@ export default function GlobalKycPendingBanner() {
   }, []);
 
   useEffect(() => {
-    if (!token || user?.kyc !== 'BLANK') {
+    if (!token || user?.kyc !== 'BLANK' || isOnKycPage) {
       setIsOpen(false);
       return;
     }
@@ -46,7 +49,7 @@ export default function GlobalKycPendingBanner() {
     }, REMIND_AFTER_MS - elapsed);
 
     return () => clearTimeout(timer);
-  }, [token, user?.kyc, dismissedAt]);
+  }, [token, user?.kyc, dismissedAt, isOnKycPage]);
 
   useEffect(() => {
     if (!token || user?.kyc !== 'BLANK') return;
@@ -128,7 +131,7 @@ export default function GlobalKycPendingBanner() {
         </div>
       )}
 
-      {isOpen && (
+      {isOpen && !isOnKycPage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-3xl border border-amber-200 bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
@@ -156,7 +159,7 @@ export default function GlobalKycPendingBanner() {
             </p>
 
             <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              Please complete KYC before continuing. This reminder will appear again after 30 seconds if you close it.
+              Please complete KYC before continuing. This reminder will appear again after 1 minute if you close it.
             </div>
 
             <div className="mt-6 flex gap-3">

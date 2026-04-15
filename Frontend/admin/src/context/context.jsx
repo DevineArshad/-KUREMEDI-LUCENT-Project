@@ -7,7 +7,7 @@ import { getErrorMessage } from "../utils/errorHandler";
 const BASE_URL = ADMIN_API_BASE_URL;
 const PRODUCT_UPLOAD_TIMEOUT_MS = 90000;
 const GENERAL_API_BASE_CANDIDATES = Array.from(
-  new Set([BASE_URL, "https://backend.kuremedi.com/api", "https://api.kuremedi.com/api"])
+  new Set([BASE_URL, "https://backend.kuremedi.com/api"])
 );
 const PRODUCT_UPLOAD_BASE_CANDIDATES = Array.from(
   new Set([BASE_URL, "https://backend.kuremedi.com/api"])

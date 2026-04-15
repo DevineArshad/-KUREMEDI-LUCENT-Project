@@ -8,6 +8,74 @@ import { useAppContext } from '@/context/context';
 import * as api from '@/api';
 import { showToast } from '@/utils/toast';
 
+const GST_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+const ACCOUNT_NUMBER_REGEX = /^[0-9]{9,18}$/;
+const IMAGE_COMPRESS_THRESHOLD_BYTES = 700 * 1024;
+const IMAGE_MAX_DIMENSION = 1600;
+const IMAGE_COMPRESS_QUALITY = 0.8;
+
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = dataUrl;
+  });
+}
+
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), type, quality);
+  });
+}
+
+async function maybeCompressImageFile(file) {
+  if (!file || !String(file.type || '').startsWith('image/')) return file;
+  if (file.size <= IMAGE_COMPRESS_THRESHOLD_BYTES) return file;
+
+  try {
+    const dataUrl = await readFileAsDataURL(file);
+    const image = await loadImage(dataUrl);
+
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!width || !height) return file;
+
+    const scale = Math.min(1, IMAGE_MAX_DIMENSION / Math.max(width, height));
+    const targetWidth = Math.max(1, Math.round(width * scale));
+    const targetHeight = Math.max(1, Math.round(height * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
+
+    const blob = await canvasToBlob(canvas, 'image/jpeg', IMAGE_COMPRESS_QUALITY);
+    if (!blob || blob.size >= file.size) return file;
+
+    const baseName = String(file.name || 'upload').replace(/\.[^.]+$/, '');
+    return new File([blob], `${baseName}.jpg`, {
+      type: 'image/jpeg',
+      lastModified: Date.now(),
+    });
+  } catch {
+    return file;
+  }
+}
+
 // Wrap useSearchParams usage in Suspense so Next.js prerender/export is happy
 export default function KycPage() {
   return (
@@ -144,6 +212,18 @@ function KycPageInner() {
     if (!accountHolderName.trim()) err.accountHolderName = 'Account holder name is required';
     if (!accountNumber.trim()) err.accountNumber = 'Account number is required';
     if (!ifscCode.trim()) err.ifscCode = 'IFSC code is required';
+    if (accountNumber.trim() && !ACCOUNT_NUMBER_REGEX.test(accountNumber.trim())) {
+      err.accountNumber = 'Account number must be 9-18 digits';
+    }
+    if (ifscCode.trim() && !IFSC_REGEX.test(ifscCode.trim().toUpperCase())) {
+      err.ifscCode = 'Enter a valid IFSC code (example: SBIN0001234)';
+    }
+    if (gstNumber.trim() && !GST_REGEX.test(gstNumber.trim().toUpperCase())) {
+      err.gstNumber = 'Enter a valid GST number (15 characters)';
+    }
+    if (gstFile && !gstNumber.trim()) {
+      err.gstNumber = 'GST number is required when GST certificate is uploaded';
+    }
     if (!cancelChequeFile) err.cancelChequeFile = 'Cancel cheque / passbook document is required';
     if (Object.keys(err).length) {
       setErrors(err);
@@ -154,19 +234,26 @@ function KycPageInner() {
       setLoading(true);
       const formData = new FormData();
 
+      const [optimizedDrugLicenseFile, optimizedGstFile, optimizedShopPhotoFile, optimizedCancelChequeFile] = await Promise.all([
+        maybeCompressImageFile(drugLicenseFile),
+        maybeCompressImageFile(gstFile),
+        maybeCompressImageFile(shopPhotoFile),
+        maybeCompressImageFile(cancelChequeFile),
+      ]);
+
       // Append Text Data
       formData.append('drugLicenseNumber', drugLicenseNumber.trim());
-      formData.append('gstNumber', gstNumber.trim());
+      formData.append('gstNumber', gstNumber.trim().toUpperCase());
       formData.append('bankName', bankName.trim());
       formData.append('accountHolderName', accountHolderName.trim());
       formData.append('accountNumber', accountNumber.trim());
       formData.append('ifscCode', ifscCode.trim());
 
       // Append Files – field names must match backend
-      if (drugLicenseFile) formData.append('drugLicenseDoc', drugLicenseFile);
-      if (gstFile) formData.append('gstDoc', gstFile);
-      if (shopPhotoFile) formData.append('shopImage', shopPhotoFile);
-      if (cancelChequeFile) formData.append('cancelChequeDoc', cancelChequeFile);
+      if (optimizedDrugLicenseFile) formData.append('drugLicenseDoc', optimizedDrugLicenseFile);
+      if (optimizedGstFile) formData.append('gstDoc', optimizedGstFile);
+      if (optimizedShopPhotoFile) formData.append('shopImage', optimizedShopPhotoFile);
+      if (optimizedCancelChequeFile) formData.append('cancelChequeDoc', optimizedCancelChequeFile);
 
       await api.submitKyc(formData);
       await refreshUser();
@@ -179,7 +266,26 @@ function KycPageInner() {
         router.push('/');
       }
     } catch (err) {
-      const msg = err?.response?.data?.message || err?.message || 'Failed to submit KYC';
+      const rawMsg = String(
+        err?.data?.message
+        || err?.response?.data?.message
+        || err?.message
+        || ''
+      ).trim();
+      const isNetworkError = /failed to fetch|network ?error|network request failed|load failed/i.test(rawMsg);
+      const isTimeoutError = /abort|timed out|timeout/i.test(rawMsg);
+
+      const msg = (err?.status === 413
+        ? 'KYC files are too large. Please upload smaller/compressed files and try again.'
+        : null)
+        || (isTimeoutError
+          ? 'Upload timed out. Please use smaller files and try again.'
+          : null)
+        || (isNetworkError
+          ? 'Unable to connect to the server. Please check your internet connection and try again.'
+          : null)
+        || rawMsg
+        || 'Failed to submit KYC';
       showToast(msg, "error");
     } finally {
       setLoading(false);
@@ -236,9 +342,10 @@ function KycPageInner() {
               type="text"
               placeholder="Enter GST number"
               value={gstNumber}
-              onChange={(e) => setGstNumber(e.target.value)}
-              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-base outline-none focus:ring-2 focus:ring-teal-700 focus:border-transparent transition-all"
+              onChange={(e) => { setGstNumber(e.target.value.toUpperCase()); setErrors((p) => ({ ...p, gstNumber: '' })); }}
+              className={`w-full bg-gray-50 border rounded-xl px-4 py-3 text-base outline-none focus:ring-2 focus:ring-teal-700 focus:border-transparent transition-all uppercase ${errors.gstNumber ? 'border-red-500' : 'border-gray-200'}`}
             />
+            {errors.gstNumber && <p className="text-red-500 text-sm mt-1">{errors.gstNumber}</p>}
 
             <div className="mt-4 pt-4 border-t border-gray-100">
               <label className="block text-sm font-medium text-gray-700 mb-2">Upload GST Certificate</label>

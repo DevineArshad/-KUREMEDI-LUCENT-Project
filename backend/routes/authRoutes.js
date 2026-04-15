@@ -58,6 +58,9 @@ const ADMIN_SECURITY_QUESTION_OPTIONS = [
   "What is your favorite movie?",
   "What is the name of your first pet?",
 ];
+const GST_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+const ACCOUNT_NUMBER_REGEX = /^[0-9]{9,18}$/;
 const stripPassword = (user) => {
   const userObj = user.toObject();
   delete userObj.password;
@@ -1099,16 +1102,61 @@ router.put(
         ifscCode,
       } = req.body;
 
-      if (aadharNumber) user.aadharNumber = aadharNumber;
-      if (drugLicenseNumber) user.drugLicenseNumber = drugLicenseNumber;
-      if (gstNumber) user.gstNumber = gstNumber;
-      if (panNumber) user.panNumber = panNumber;
-      if (bankName) user.bankName = bankName;
-      if (accountHolderName) user.accountHolderName = accountHolderName;
-      if (accountNumber) user.accountNumber = accountNumber;
-      if (ifscCode) user.ifscCode = ifscCode;
-
+      const normalizedDrugLicenseNumber = String(drugLicenseNumber || "").trim();
+      const normalizedGstNumber = String(gstNumber || "").trim().toUpperCase();
+      const normalizedBankName = String(bankName || "").trim();
+      const normalizedAccountHolderName = String(accountHolderName || "").trim();
+      const normalizedAccountNumber = String(accountNumber || "").trim();
+      const normalizedIfscCode = String(ifscCode || "").trim().toUpperCase();
       const files = req.files;
+
+      const effectiveDrugLicenseDoc = files?.drugLicenseDoc?.[0] || user.drugLicenseDoc;
+      const effectiveCancelChequeDoc = files?.cancelChequeDoc?.[0] || user.cancelChequeDoc;
+      const effectiveGstDoc = files?.gstDoc?.[0] || user.gstDoc;
+      const effectiveGstNumber = normalizedGstNumber || String(user.gstNumber || "").trim().toUpperCase();
+
+      if (!normalizedDrugLicenseNumber && !String(user.drugLicenseNumber || "").trim()) {
+        return res.status(400).json({ message: "Drug license number is required" });
+      }
+      if (!effectiveDrugLicenseDoc) {
+        return res.status(400).json({ message: "Upload drug license document" });
+      }
+      if (!normalizedBankName && !String(user.bankName || "").trim()) {
+        return res.status(400).json({ message: "Bank name is required" });
+      }
+      if (!normalizedAccountHolderName && !String(user.accountHolderName || "").trim()) {
+        return res.status(400).json({ message: "Account holder name is required" });
+      }
+      if (!normalizedAccountNumber && !String(user.accountNumber || "").trim()) {
+        return res.status(400).json({ message: "Account number is required" });
+      }
+      if (normalizedAccountNumber && !ACCOUNT_NUMBER_REGEX.test(normalizedAccountNumber)) {
+        return res.status(400).json({ message: "Account number must be 9-18 digits" });
+      }
+      if (!normalizedIfscCode && !String(user.ifscCode || "").trim()) {
+        return res.status(400).json({ message: "IFSC code is required" });
+      }
+      if (normalizedIfscCode && !IFSC_REGEX.test(normalizedIfscCode)) {
+        return res.status(400).json({ message: "Invalid IFSC code. Example: SBIN0001234" });
+      }
+      if (!effectiveCancelChequeDoc) {
+        return res.status(400).json({ message: "Upload cancel cheque or passbook document" });
+      }
+      if (effectiveGstNumber && !GST_REGEX.test(effectiveGstNumber)) {
+        return res.status(400).json({ message: "Invalid GST number. Enter a valid 15-character GSTIN" });
+      }
+      if (effectiveGstDoc && !effectiveGstNumber) {
+        return res.status(400).json({ message: "GST number is required when GST certificate is uploaded" });
+      }
+
+      if (aadharNumber) user.aadharNumber = aadharNumber;
+      if (normalizedDrugLicenseNumber) user.drugLicenseNumber = normalizedDrugLicenseNumber;
+      if (normalizedGstNumber) user.gstNumber = normalizedGstNumber;
+      if (panNumber) user.panNumber = panNumber;
+      if (normalizedBankName) user.bankName = normalizedBankName;
+      if (normalizedAccountHolderName) user.accountHolderName = normalizedAccountHolderName;
+      if (normalizedAccountNumber) user.accountNumber = normalizedAccountNumber;
+      if (normalizedIfscCode) user.ifscCode = normalizedIfscCode;
       if (files?.aadharDoc)
         user.aadharDoc = `kyc/${files.aadharDoc[0].filename}`;
       if (files?.drugLicenseDoc)

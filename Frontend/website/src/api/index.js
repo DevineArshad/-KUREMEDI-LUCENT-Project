@@ -4,6 +4,25 @@
 import { API_BASE_URL } from "../config";
 import { apiGet, apiPost, apiPut, apiDelete } from "./client";
 
+const parseFetchResponse = async (res, fallbackLabel = "Request") => {
+  const raw = await res.text();
+  let data = null;
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = { message: raw };
+    }
+  }
+  if (!res.ok) {
+    const error = new Error(data?.message || `${fallbackLabel} failed with status ${res.status}`);
+    error.status = res.status;
+    error.data = data;
+    throw error;
+  }
+  return data;
+};
+
 export const getProducts = (params = {}) => {
   const clean = Object.fromEntries(
     Object.entries(params).filter(([, v]) => v != null && v !== "")
@@ -39,7 +58,7 @@ export const completePasswordReset = (tempToken, data) =>
       Authorization: `Bearer ${tempToken}`,
     },
     body: JSON.stringify(data),
-  }).then((r) => r.json());
+  }).then((r) => parseFetchResponse(r, "Password reset"));
 
 export const completeRegistration = (tempToken, data) =>
   fetch(`${API_BASE_URL}/auth/complete-registration`, {
@@ -49,7 +68,7 @@ export const completeRegistration = (tempToken, data) =>
       Authorization: `Bearer ${tempToken}`,
     },
     body: JSON.stringify(data),
-  }).then((r) => r.json());
+  }).then((r) => parseFetchResponse(r, "Registration"));
 
 export const getMe = () => apiGet("/auth/me");
 
@@ -71,12 +90,25 @@ export const updateProfile = (data) => apiPut("/auth/me", data);
 export const submitKyc = async (formData) => {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   if (!token) throw new Error("Not authenticated");
-  const res = await fetch(`${API_BASE_URL}/auth/kyc`, {
-    method: "PUT",
-    headers: { Authorization: `Bearer ${token}` },
-    body: formData,
-  });
-  return res.json();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 180000);
+  let res;
+  try {
+    res = await fetch(`${API_BASE_URL}/auth/kyc`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("Upload timed out. Please use smaller files and try again.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+  return parseFetchResponse(res, "KYC submission");
 };
 
 export const getWallet = () => apiGet("/wallet");

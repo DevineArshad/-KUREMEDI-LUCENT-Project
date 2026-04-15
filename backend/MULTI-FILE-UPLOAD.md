@@ -24,7 +24,7 @@ See the changes in:
 
 ### 2. Nginx Server Configuration (Manual Setup Required)
 
-You **must update the nginx configuration** on your production server hosting `api.kuremedi.com`.
+You **must update the nginx configuration** on your production server hosting `backend.kuremedi.com`.
 
 #### Step 1: SSH into your API server
 ```bash
@@ -33,25 +33,25 @@ ssh ubuntu@your-api-server-ip
 
 #### Step 2: Find the nginx config
 ```bash
-sudo grep -r "api.kuremedi.com\|proxy_pass.*5000" /etc/nginx/
+sudo grep -r "backend.kuremedi.com\|proxy_pass.*5000" /etc/nginx/
 ```
 
 Common locations:
 - `/etc/nginx/sites-available/default`
-- `/etc/nginx/sites-available/api.kuremedi.com`
+- `/etc/nginx/sites-available/backend.kuremedi.com`
 - `/etc/nginx/conf.d/api.conf`
 
 #### Step 3: Update the server block
 
-Add/update this line in the `server { }` block that handles `api.kuremedi.com`:
+Add/update this line in the `server { }` block that handles `backend.kuremedi.com`:
 
 ```nginx
 server {
     listen 443 ssl http2;
-    server_name api.kuremedi.com;
+    server_name backend.kuremedi.com;
 
-    ssl_certificate /etc/letsencrypt/live/api.kuremedi.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/api.kuremedi.com/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/backend.kuremedi.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/backend.kuremedi.com/privkey.pem;
 
     # Increase request body size for file uploads
     client_max_body_size 50M;
