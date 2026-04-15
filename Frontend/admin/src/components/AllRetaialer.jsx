@@ -10,7 +10,10 @@ import { ADMIN_API_BASE_URL, resolveUploadUrl } from "../lib/baseUrl";
 const API_BASE = ADMIN_API_BASE_URL;
 const fileUrl = (file) => {
   if (!file) return null;
-  const normalized = String(file).replace(/^\/+/, "").replace(/\\/g, "/");
+  const normalized = String(file).trim().replace(/^\/+/, "").replace(/\\/g, "/");
+  if (/^(https?:|data:|blob:)/i.test(normalized)) {
+    return normalized;
+  }
   return normalized.startsWith("uploads/")
     ? resolveUploadUrl(normalized)
     : resolveUploadUrl(`uploads/${normalized}`);

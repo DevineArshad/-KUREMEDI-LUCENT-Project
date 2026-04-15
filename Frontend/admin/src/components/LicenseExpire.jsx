@@ -3,7 +3,16 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useContextApi } from "../hooks/useContextApi";
 import { resolveUploadUrl } from "../lib/baseUrl";
 
-const fileUrl = (file) => (file ? resolveUploadUrl(`uploads/${String(file).replace(/^\/+/, "")}`) : null);
+const fileUrl = (file) => {
+  if (!file) return null;
+  const normalized = String(file).trim().replace(/\\/g, "/").replace(/^\/+/, "");
+  if (/^(https?:|data:|blob:)/i.test(normalized)) {
+    return normalized;
+  }
+  return normalized.startsWith("uploads/")
+    ? resolveUploadUrl(normalized)
+    : resolveUploadUrl(`uploads/${normalized}`);
+};
 
 function LicenseExpire() {
   const { getAllUsers, updateKYCStatus } = useContextApi();

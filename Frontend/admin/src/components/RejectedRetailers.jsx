@@ -2,7 +2,16 @@ import React, { useEffect, useState } from "react";
 import { useContextApi } from "../hooks/useContextApi";
 import { resolveUploadUrl } from "../lib/baseUrl";
 
-const fileUrl = (file) => (file ? resolveUploadUrl(`uploads/${String(file).replace(/^\/+/, "")}`) : null);
+const fileUrl = (file) => {
+  if (!file) return null;
+  const normalized = String(file).trim().replace(/\\/g, "/").replace(/^\/+/, "");
+  if (/^(https?:|data:|blob:)/i.test(normalized)) {
+    return normalized;
+  }
+  return normalized.startsWith("uploads/")
+    ? resolveUploadUrl(normalized)
+    : resolveUploadUrl(`uploads/${normalized}`);
+};
 
 function RejectedRetailers() {
   const { getAllUsers, updateKYCStatus } = useContextApi();

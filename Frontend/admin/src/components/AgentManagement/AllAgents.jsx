@@ -94,7 +94,16 @@ export default function AllAgents() {
   };
 
   const uploadBase = getUploadBaseUrl();
-  const docUrl = (path) => (path ? `${uploadBase}/uploads/${path}` : null);
+  const docUrl = (path) => {
+    if (!path) return null;
+    const normalized = String(path).trim().replace(/\\/g, "/").replace(/^\/+/, "");
+    if (/^(https?:|data:|blob:)/i.test(normalized)) {
+      return normalized;
+    }
+    return normalized.startsWith("uploads/")
+      ? `${uploadBase}/${normalized}`
+      : `${uploadBase}/uploads/${normalized}`;
+  };
 
   return (
     <div className="w-full p-4 md:p-6 bg-gray-100 min-h-screen">
