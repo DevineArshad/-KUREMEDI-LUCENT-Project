@@ -2,6 +2,7 @@ import axios from "axios";
 
 const SHIPROCKET_API_BASE = "https://apiv2.shiprocket.in/v1/external";
 const TOKEN_TTL_MS = 60 * 60 * 1000;
+const FALLBACK_ITEM_WEIGHT_KG = 0.5;
 
 const tokenCache = {
   token: "",
@@ -92,6 +93,31 @@ const pickFirstString = (...values) => {
 };
 
 const digitsOnly = (value) => normalizeText(value).replace(/\D/g, "");
+
+const resolveItemWeight = (weight) => {
+  const numeric = Number(weight);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return Math.round(numeric * 100) / 100;
+  }
+  return FALLBACK_ITEM_WEIGHT_KG;
+};
+
+const roundWeight = (weight) => Math.round(Number(weight || 0) * 100) / 100;
+
+const calculateTotalWeight = (orderDoc = {}, items = []) => {
+  const storedTotalWeight = Number(orderDoc.totalWeight || orderDoc.weight);
+  if (Number.isFinite(storedTotalWeight) && storedTotalWeight > 0) {
+    return Math.max(0.01, roundWeight(storedTotalWeight));
+  }
+
+  const total = (Array.isArray(items) ? items : []).reduce((sum, item) => {
+    const itemWeight = resolveItemWeight(item?.weight);
+    const quantity = Number(item?.quantity || item?.units || 1);
+    return sum + itemWeight * (Number.isFinite(quantity) && quantity > 0 ? quantity : 1);
+  }, 0);
+
+  return Math.max(0.01, roundWeight(total));
+};
 
 const inferCity = (shippingAddress = {}) => {
   const direct = pickFirstString(shippingAddress.city);
@@ -365,6 +391,7 @@ const buildPayload = (orderDoc = {}) => {
   const pincode = digitsOnly(orderDoc.pincode || shippingAddress.pincode || orderDoc.delivery_address?.pincode);
   const totalAmount = Number(orderDoc.payableAmount ?? orderDoc.totalAmount ?? orderDoc.totalAmt ?? 0);
   const items = Array.isArray(orderDoc.items) ? orderDoc.items : Array.isArray(orderDoc.cartItems) ? orderDoc.cartItems : [];
+  const totalWeight = calculateTotalWeight(orderDoc, items);
 
   return {
     order_id: orderId,
@@ -391,7 +418,7 @@ const buildPayload = (orderDoc = {}) => {
     length: Number(orderDoc.length || 20),
     breadth: Number(orderDoc.breadth || 15),
     height: Number(orderDoc.height || 10),
-    weight: Number(orderDoc.weight || 2),
+    weight: totalWeight,
     cod_amount: normalizePaymentMode(orderDoc) === "COD" ? totalAmount : 0,
   };
 };

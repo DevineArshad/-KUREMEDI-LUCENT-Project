@@ -93,6 +93,13 @@ const productSchema = new mongoose.Schema(
       trim: true,
     },
 
+    // Product weight in kilograms for shipment weight calculation
+    weight: {
+      type: Number,
+      required: true,
+      min: 0.01,
+    },
+
     // 📂 Category ref (from Category table)
     category: {
       type: mongoose.Schema.Types.ObjectId,

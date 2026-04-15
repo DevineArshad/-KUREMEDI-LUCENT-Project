@@ -48,6 +48,33 @@ const orderItemSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    weight: {
+      type: Number,
+      default: 0.5,
+      min: 0.01,
+    },
+  },
+  { _id: false },
+);
+
+const orderCartItemSchema = new mongoose.Schema(
+  {
+    product: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Product",
+      required: true,
+    },
+    quantity: {
+      type: Number,
+      required: true,
+      min: 1,
+    },
+    weight: {
+      type: Number,
+      required: true,
+      min: 0.01,
+      default: 0.5,
+    },
   },
   { _id: false },
 );
@@ -105,6 +132,7 @@ const orderSchema = new mongoose.Schema(
       ref: "User",
     },
     items: [orderItemSchema],
+    cartItems: [orderCartItemSchema],
     totalAmount: {
       type: Number,
       required: true,
@@ -116,6 +144,12 @@ const orderSchema = new mongoose.Schema(
     payableAmount: {
       type: Number,
       required: true,
+    },
+    totalWeight: {
+      type: Number,
+      required: true,
+      min: 0.01,
+      default: 0.5,
     },
     status: {
       type: String,
@@ -162,6 +196,18 @@ orderSchema.pre("save", async function () {
 
   if (!this.orderStatus && this.status) {
     this.orderStatus = this.status;
+  }
+
+  if (!(Number(this.totalWeight) > 0)) {
+    const items = Array.isArray(this.items) ? this.items : [];
+    const computed = items.reduce((sum, item) => {
+      const weight = Number(item?.weight);
+      const safeWeight = Number.isFinite(weight) && weight > 0 ? weight : 0.5;
+      const quantity = Number(item?.quantity);
+      const safeQuantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+      return sum + safeWeight * safeQuantity;
+    }, 0);
+    this.totalWeight = Math.max(0.01, Math.round(computed * 100) / 100);
   }
 });
 

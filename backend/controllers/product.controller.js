@@ -43,6 +43,7 @@ const parseProductBody = (body) => {
   if (obj.stockQuantity !== undefined) obj.stockQuantity = Number(obj.stockQuantity);
   if (obj.minStockLevel !== undefined) obj.minStockLevel = Number(obj.minStockLevel);
   if (obj.minOrderQty !== undefined) obj.minOrderQty = Number(obj.minOrderQty);
+  if (obj.weight !== undefined) obj.weight = Number(obj.weight);
   if (obj.expiryDate !== undefined && obj.expiryDate)
     obj.expiryDate = new Date(obj.expiryDate);
   if (obj.isActive !== undefined)
@@ -74,6 +75,13 @@ const validatePricingFields = ({ mrp, sellingPrice, discountPercent, gstPercent 
   return null;
 };
 
+const validateWeightField = (weight) => {
+  if (!Number.isFinite(weight) || weight <= 0) {
+    return "Product weight must be greater than 0";
+  }
+  return null;
+};
+
 const resolveGstMode = ({ rawMode, gstPercent, fallbackMode = "exclude" }) => {
   const hasRawMode = rawMode !== undefined && rawMode !== null && String(rawMode).trim() !== "";
   if (hasRawMode) return normalizeGstMode(rawMode);
@@ -98,10 +106,16 @@ export const createProduct = async (req, res) => {
     const mrp = Number(data.mrp);
     const discountPercent = Number(data.discountPercent ?? 0);
     const gstPercent = Number(data.gstPercent ?? 0);
+    const weight = Number(data.weight);
     const pricingError = validatePricingFields({ mrp, sellingPrice, discountPercent, gstPercent });
     if (pricingError) {
       return res.status(400).json({ success: false, message: pricingError });
     }
+    const weightError = validateWeightField(weight);
+    if (weightError) {
+      return res.status(400).json({ success: false, message: weightError });
+    }
+    data.weight = Math.round(weight * 100) / 100;
     data.discountPercent = normalizePercent(discountPercent, 100);
     data.gstMode = resolveGstMode({ rawMode: req.body?.gstMode, gstPercent, fallbackMode: data.gstMode });
     data.gstPercent = data.gstMode === "include" ? normalizePercent(gstPercent) : 0;
@@ -156,10 +170,16 @@ export const updateProduct = async (req, res) => {
     const mrp = Number(data.mrp ?? product.mrp);
     const discountPercent = Number(data.discountPercent ?? product.discountPercent ?? 0);
     const gstPercent = Number(data.gstPercent ?? product.gstPercent ?? 0);
+    const weight = Number(data.weight ?? product.weight);
     const pricingError = validatePricingFields({ mrp, sellingPrice, discountPercent, gstPercent });
     if (pricingError) {
       return res.status(400).json({ success: false, message: pricingError });
     }
+    const weightError = validateWeightField(weight);
+    if (weightError) {
+      return res.status(400).json({ success: false, message: weightError });
+    }
+    data.weight = Math.round(weight * 100) / 100;
     data.discountPercent = normalizePercent(discountPercent, 100);
     data.gstMode = resolveGstMode({
       rawMode: req.body?.gstMode,
@@ -260,6 +280,8 @@ const COL_MAP = {
   "minstocklevel": "minStockLevel",
   "min order": "minOrderQty",
   "minorderqty": "minOrderQty",
+  "weight": "weight",
+  "weight (kg)": "weight",
   "active": "isActive",
   "isactive": "isActive",
   "prescription required": "prescriptionRequired",
@@ -347,6 +369,12 @@ export const bulkImportProducts = async (req, res) => {
         const discountPercent = normalizePercent(toNum(obj.discountPercent) ?? 0, 100);
         const gstMode = resolveGstMode({ rawMode: obj.gstMode, gstPercent: toNum(obj.gstPercent) ?? 0 });
         const gstPercent = gstMode === "include" ? normalizePercent(toNum(obj.gstPercent) ?? 0) : 0;
+        const weight = toNum(obj.weight);
+
+        if (weight == null || weight <= 0) {
+          errors.push({ row: i + 1, message: "Valid product weight (> 0 kg) is required" });
+          continue;
+        }
 
         let categoryId = obj.category;
         if (obj.categoryName && !categoryId) {
@@ -388,6 +416,7 @@ export const bulkImportProducts = async (req, res) => {
           stockQuantity: toNum(obj.stockQuantity) ?? 0,
           minStockLevel: toNum(obj.minStockLevel) ?? 0,
           minOrderQty: toNum(obj.minOrderQty) ?? 1,
+          weight: Math.round(weight * 100) / 100,
           isActive: toBool(obj.isActive) ?? true,
           prescriptionRequired: toBool(obj.prescriptionRequired) ?? false,
           productImages: [],

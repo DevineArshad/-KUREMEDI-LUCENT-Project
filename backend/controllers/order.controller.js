@@ -18,6 +18,18 @@ import {
 } from "../services/shiprocket.service.js";
 import { calculateLinePricing } from "../utils/pricing.js";
 
+const FALLBACK_ITEM_WEIGHT_KG = 0.5;
+
+const resolveItemWeight = (weight) => {
+  const numeric = Number(weight);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return Math.round(numeric * 100) / 100;
+  }
+  return FALLBACK_ITEM_WEIGHT_KG;
+};
+
+const roundWeight = (weight) => Math.round(Number(weight || 0) * 100) / 100;
+
 const toTrackingUrl = (awb, trackingUrl) => {
   if (!awb) return null;
   const safe = `https://shiprocket.co/tracking/${encodeURIComponent(awb)}`;
@@ -144,6 +156,14 @@ export const placeOrder = async (req, res) => {
       totalAmount += pricing.lineSubtotal;
       totalGstAmount += pricing.lineGstAmount;
 
+      const itemWeight = resolveItemWeight(product.weight ?? item.weight);
+      if (!(Number(product.weight) > 0)) {
+        console.warn("Missing product weight, using fallback", {
+          productId: String(product._id),
+          fallbackWeightKg: FALLBACK_ITEM_WEIGHT_KG,
+        });
+      }
+
       orderItems.push({
         product: product._id,
         productName: product.productName,
@@ -156,10 +176,16 @@ export const placeOrder = async (req, res) => {
         gstAmount: pricing.lineGstAmount,
         lineSubtotal: pricing.lineSubtotal,
         lineTotal: pricing.lineTotal,
+        weight: itemWeight,
       });
     }
 
     const payableAmount = Math.round((totalAmount + totalGstAmount) * 100) / 100;
+    const totalWeightRaw = orderItems.reduce((total, item) => {
+      const itemWeight = resolveItemWeight(item.weight);
+      return total + itemWeight * Number(item.quantity || 1);
+    }, 0);
+    const totalWeight = Math.max(0.01, roundWeight(totalWeightRaw));
 
     // retailer who is ordering
     const user = await User.findById(req.user._id);
@@ -176,6 +202,12 @@ export const placeOrder = async (req, res) => {
       totalAmount,
       totalGstAmount,
       payableAmount,
+      totalWeight,
+      cartItems: orderItems.map((item) => ({
+        product: item.product,
+        quantity: item.quantity,
+        weight: item.weight,
+      })),
       shippingAddress,
       notes,
     });

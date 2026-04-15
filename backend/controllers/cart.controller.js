@@ -2,6 +2,16 @@ import Cart from "../model/Cart.js";
 import Product from "../model/Product.js";
 import { calculateLinePricing } from "../utils/pricing.js";
 
+const FALLBACK_ITEM_WEIGHT_KG = 0.5;
+
+const resolveItemWeight = (weight) => {
+  const numeric = Number(weight);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return Math.round(numeric * 100) / 100;
+  }
+  return FALLBACK_ITEM_WEIGHT_KG;
+};
+
 /**
  * ADD TO CART
  * POST /api/cart/add
@@ -36,7 +46,7 @@ export const addToCart = async (req, res) => {
       }
       cart = await Cart.create({
         user: req.user._id,
-        items: [{ product: productId, quantity: qty }],
+        items: [{ product: productId, quantity: qty, weight: resolveItemWeight(product.weight) }],
       });
     } else {
       const itemIndex = cart.items.findIndex(
@@ -52,6 +62,7 @@ export const addToCart = async (req, res) => {
           });
         }
         cart.items[itemIndex].quantity = nextQty;
+        cart.items[itemIndex].weight = resolveItemWeight(product.weight);
       } else {
         if (qty > product.stockQuantity) {
           return res.status(400).json({
@@ -59,7 +70,11 @@ export const addToCart = async (req, res) => {
             message: `Only ${product.stockQuantity} stock quantity are present.`,
           });
         }
-        cart.items.push({ product: productId, quantity: qty });
+        cart.items.push({
+          product: productId,
+          quantity: qty,
+          weight: resolveItemWeight(product.weight),
+        });
       }
 
       await cart.save();
@@ -91,7 +106,7 @@ export const getMyCart = async (req, res) => {
   try {
     const cart = await Cart.findOne({ user: req.user._id }).populate(
       "items.product",
-      "productName name mrp sellingPrice discountPercent gstPercent gstMode stockQuantity minOrderQty productImages isActive"
+      "productName name mrp sellingPrice discountPercent gstPercent gstMode stockQuantity minOrderQty productImages isActive weight"
     );
 
     if (!cart) return res.json({ success: true, items: [] });
@@ -122,6 +137,7 @@ export const getMyCart = async (req, res) => {
       normalizedItems.push({
         product: product._id,
         quantity: clampedQty,
+        weight: resolveItemWeight(product.weight ?? item.weight),
       });
     }
 
@@ -130,7 +146,7 @@ export const getMyCart = async (req, res) => {
       await cart.save();
       await cart.populate(
         "items.product",
-        "productName name mrp sellingPrice discountPercent gstPercent gstMode stockQuantity minOrderQty productImages isActive",
+        "productName name mrp sellingPrice discountPercent gstPercent gstMode stockQuantity minOrderQty productImages isActive weight",
       );
     }
 
@@ -156,6 +172,7 @@ export const getMyCart = async (req, res) => {
           gstAmount: pricing.gstAmount,
           price: pricing.finalSellingPrice,
         },
+        weight: resolveItemWeight(item.weight ?? item.product.weight),
       };
     });
 

@@ -2,6 +2,17 @@ import axios from "axios";
 
 let shiprocketToken = "";
 let tokenExpiry = null;
+const FALLBACK_ITEM_WEIGHT_KG = 0.5;
+
+const resolveItemWeight = (weight) => {
+  const numeric = Number(weight);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return Math.round(numeric * 100) / 100;
+  }
+  return FALLBACK_ITEM_WEIGHT_KG;
+};
+
+const roundWeight = (weight) => Math.round(Number(weight || 0) * 100) / 100;
 
 const clearShiprocketTokenCache = () => {
   shiprocketToken = "";
@@ -195,8 +206,15 @@ export const mapOrderToShiprocketPayload = (orderDoc) => {
       productId: it.product?._id || it.product,
       quantity: it.quantity || 1,
       price: it.price || 0,
+      weight: resolveItemWeight(it.weight),
     })),
     totalAmt: orderDoc.payableAmount ?? orderDoc.totalAmount ?? 0,
+    totalWeight:
+      Number(orderDoc.totalWeight) > 0
+        ? Number(orderDoc.totalWeight)
+        : (orderDoc.items || []).reduce((total, it) => {
+            return total + resolveItemWeight(it.weight) * Number(it.quantity || 1);
+          }, 0),
     payment_status:
       orderDoc.razorpayPaymentId || (orderDoc.walletAmount >= (orderDoc.payableAmount ?? orderDoc.totalAmount ?? 0))
         ? "paid"
@@ -226,7 +244,18 @@ export const createShiprocketOrder = async (order) => {
       ? cleanAddress
       : `House No. 1 ${cleanAddress}`;
 
-    const pickupLocation = process.env.PICKUP_LOCATION || "Home";
+    const pickupLocation = process.env.SHIPROCKET_PICKUP_LOCATION || process.env.PICKUP_LOCATION || "Home";
+    const totalWeight = Math.max(
+      0.01,
+      roundWeight(
+        Number(order.totalWeight) > 0
+          ? Number(order.totalWeight)
+          : (order.cartItems || []).reduce((total, item) => {
+              const itemWeight = resolveItemWeight(item?.weight);
+              return total + itemWeight * Number(item?.quantity || 1);
+            }, 0),
+      ),
+    );
 
     // Shiprocket expects order_date as "YYYY-MM-DD HH:mm"
     const now = new Date();
@@ -264,7 +293,7 @@ export const createShiprocketOrder = async (order) => {
       length: 20,
       breadth: 15,
       height: 10,
-      weight: 2,
+      weight: totalWeight,
     };
 
     const postOrder = (body, token) =>

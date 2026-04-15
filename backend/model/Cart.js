@@ -13,6 +13,12 @@ const cartItemSchema = new mongoose.Schema(
       required: true,
       min: 1,
     },
+
+    weight: {
+      type: Number,
+      default: 0.5,
+      min: 0.01,
+    },
   },
   { _id: false },
 );

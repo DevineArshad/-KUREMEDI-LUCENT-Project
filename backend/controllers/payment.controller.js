@@ -19,6 +19,17 @@ import { calculateLinePricing } from "../utils/pricing.js";
 import { getValidatedRazorpayConfig } from "../utils/razorpayConfig.js";
 
 const MIN_CHECKOUT_AMOUNT_KEY = "minimumCheckoutAmount";
+const FALLBACK_ITEM_WEIGHT_KG = 0.5;
+
+const resolveItemWeight = (weight) => {
+  const numeric = Number(weight);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return Math.round(numeric * 100) / 100;
+  }
+  return FALLBACK_ITEM_WEIGHT_KG;
+};
+
+const roundWeight = (weight) => Math.round(Number(weight || 0) * 100) / 100;
 
 function timingSafeSignatureEqual(expectedHex, providedHex) {
   try {
@@ -423,6 +434,7 @@ export const createPaymentOrder = async (req, res) => {
       cart.items = nextCartItems.map((item) => ({
         product: item.product?._id || item.product,
         quantity: item.quantity,
+        weight: resolveItemWeight(item.product?.weight ?? item.weight),
       }));
       await cart.save();
       await cart.populate("items.product");
@@ -463,6 +475,14 @@ export const createPaymentOrder = async (req, res) => {
       totalAmount += pricing.lineSubtotal;
       totalGstAmount += pricing.lineGstAmount;
 
+      const itemWeight = resolveItemWeight(product.weight ?? item.weight);
+      if (!(Number(product.weight) > 0)) {
+        console.warn("Missing product weight, using fallback", {
+          productId: String(product._id),
+          fallbackWeightKg: FALLBACK_ITEM_WEIGHT_KG,
+        });
+      }
+
       orderItems.push({
         product: product._id,
         productName: product.productName,
@@ -475,8 +495,15 @@ export const createPaymentOrder = async (req, res) => {
         gstAmount: pricing.lineGstAmount,
         lineSubtotal: pricing.lineSubtotal,
         lineTotal: pricing.lineTotal,
+        weight: itemWeight,
       });
     }
+
+    const totalWeightRaw = orderItems.reduce((total, item) => {
+      const itemWeight = resolveItemWeight(item.weight);
+      return total + itemWeight * Number(item.quantity || 1);
+    }, 0);
+    const totalWeight = Math.max(0.01, roundWeight(totalWeightRaw));
 
     const payableAmountRupee = Math.round((totalAmount + totalGstAmount) * 100) / 100;
 
@@ -557,9 +584,15 @@ export const createPaymentOrder = async (req, res) => {
       user: req.user._id,
       createdBy: user?.createdBy || null,
       items: orderItems,
+      cartItems: orderItems.map((item) => ({
+        product: item.product,
+        quantity: item.quantity,
+        weight: item.weight,
+      })),
       totalAmount,
       totalGstAmount,
       payableAmount: payableAmountRupee,
+      totalWeight,
       walletAmount,
       razorpayAmount: razorpayAmountRupee,
       status: walletAmount >= payableAmountRupee ? "PLACED" : "PENDING",
