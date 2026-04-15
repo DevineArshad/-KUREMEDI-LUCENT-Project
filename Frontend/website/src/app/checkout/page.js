@@ -812,11 +812,7 @@ export default function CheckoutPage() {
             unlockPageScroll();
 
             if (reason === "manual-dismiss") {
-              showToast(
-                "Payment window closed. We will keep checking payment status in background for up to 10 minutes.",
-                "info",
-              );
-              return;
+              showToast("Payment cancelled. Complete payment to place your order.", "info");
             }
 
             if (reason === "poll-timeout") {
@@ -962,6 +958,7 @@ function RazorpayModal({ paymentModal, onSuccess, onPaid, onClose }) {
           if (paymentCompleted) {
             return;
           }
+          stopPolling();
           userDismissed = true;
           console.warn("Payment modal dismissed by user");
           onCloseRef.current?.("manual-dismiss");

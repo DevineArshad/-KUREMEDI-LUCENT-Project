@@ -920,8 +920,12 @@ export const getPaymentStatus = async (req, res) => {
       });
     }
 
-    if (order.status === "PLACED" || order.razorpayPaymentId) {
-      return res.json({ status: "paid", orderStatus: order.status });
+    if (order.razorpayPaymentId) {
+      return res.json({
+        status: "paid",
+        orderStatus: order.status,
+        paymentId: String(order.razorpayPaymentId),
+      });
     }
 
     const gateway = await fetchRazorpayOrderPayments({
