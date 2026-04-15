@@ -12,17 +12,33 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      SSH_HOST: ${{ secrets.BACKEND_HOST || secrets.EC2_HOST || secrets.FRONTEND_HOST }}
+      SSH_USER: ${{ secrets.BACKEND_USER || secrets.FRONTEND_USER || 'ubuntu' }}
+      SSH_KEY: ${{ secrets.BACKEND_SSH_KEY || secrets.EC2_SSH_KEY || secrets.FRONTEND_SSH_KEY }}
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v5
 
+      - name: Validate SSH Secrets
+        run: |
+          if [ -z "${SSH_HOST}" ]; then
+            echo "Missing secret: BACKEND_HOST or EC2_HOST or FRONTEND_HOST"
+            exit 1
+          fi
+          if [ -z "${SSH_KEY}" ]; then
+            echo "Missing secret: BACKEND_SSH_KEY or EC2_SSH_KEY or FRONTEND_SSH_KEY"
+            exit 1
+          fi
+          echo "SSH secret validation passed"
+
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ env.SSH_KEY }}
           script: |
             set -e
 
@@ -38,7 +54,8 @@ jobs:
             cd -- "-KUREMEDI-LUCENT-Project/backend"
 
             echo "Pull latest code"
-            git pull origin main
+            git fetch --all
+            git reset --hard origin/main
 
             echo "Install dependencies"
             npm install
