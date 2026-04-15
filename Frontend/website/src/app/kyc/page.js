@@ -315,8 +315,9 @@ function KycPageInner() {
       ).trim();
       const isNetworkError = /failed to fetch|network ?error|network request failed|load failed/i.test(rawMsg);
       const isTimeoutError = /abort|timed out|timeout/i.test(rawMsg);
+      const isFileSizeError = /file.*size|too large|exceed|payload|413|5mb|5 mb|500kb|size limit/i.test(rawMsg) || err?.status === 413;
 
-      const msg = (err?.status === 413
+      const msg = (isFileSizeError
         ? `KYC files are too large. Please upload files less than ${getMaxFileSizeLabel()} each and try again.`
         : null)
         || (isTimeoutError
