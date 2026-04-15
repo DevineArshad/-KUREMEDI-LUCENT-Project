@@ -85,7 +85,7 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // Test Route
 app.get("/", (req, res) => {
-  res.send("CI/CD deployed successfully00🚀");
+  res.send("CI/CD deployed successfully🚀");
 });
 // app.get("/", (req, res) => {
 //   res.send("Server is running  on port 5000🚀");
