@@ -1613,6 +1613,19 @@ export const updateOrderStatus = async (req, res) => {
     }
     res.json(json);
   } catch (err) {
-    res.status(500).json({ message: "Server error" });
+    console.error("Error updating order status:", {
+      message: err?.message,
+      stack: err?.stack,
+      shiprocket: err?.shiprocket || null,
+      response: err?.response?.data || null,
+    });
+
+    const details =
+      err?.shiprocket?.message ||
+      err?.response?.data?.message ||
+      err?.message ||
+      "Server error";
+
+    res.status(500).json({ message: details });
   }
 };
