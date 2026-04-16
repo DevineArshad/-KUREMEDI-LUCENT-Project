@@ -171,13 +171,16 @@ router.post("/send-otp", async (req, res) => {
 
     const normalizedPhone = String(phone).trim();
 
-    if (isTestOtpMode()) {
-      await Otp.deleteMany({ phone: { $ne: TEST_OTP_PHONE } });
-
-      if (normalizedPhone !== TEST_OTP_PHONE) {
-        return res.status(400).json({ message: "Invalid test number" });
-      }
-
+    if (isTestOtpMode() && normalizedPhone === TEST_OTP_PHONE) {
+      await Otp.findOneAndUpdate(
+        { phone: normalizedPhone },
+        {
+          phone: normalizedPhone,
+          otp: TEST_OTP_CODE,
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+        },
+        { upsert: true, new: true }
+      );
       return res.json({
         message: "OTP sent successfully",
         devOtp: TEST_OTP_CODE,
@@ -229,17 +232,12 @@ router.post("/verify-otp", async (req, res) => {
     const normalizedOtp = String(otp).trim();
     let verifiedMessage = "OTP verified successfully";
 
-    if (isTestOtpMode()) {
-      await Otp.deleteMany({ phone: { $ne: TEST_OTP_PHONE } });
-
-      if (normalizedPhone !== TEST_OTP_PHONE) {
-        return res.status(401).json({ message: "Invalid test number" });
-      }
+    if (isTestOtpMode() && normalizedPhone === TEST_OTP_PHONE) {
       if (normalizedOtp !== TEST_OTP_CODE) {
         return res.status(401).json({ message: "Invalid OTP" });
       }
 
-      // In test mode, persist OTP only for the allowed test pair.
+      // Keep the test pair available for repeated dev verification.
       await Otp.findOneAndUpdate(
         { phone: normalizedPhone },
         {
