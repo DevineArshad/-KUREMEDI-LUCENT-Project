@@ -184,6 +184,7 @@ const orderSchema = new mongoose.Schema(
       type: String,
     },
     shiprocketShipmentId: { type: String, default: null },
+    shiprocketOrderId: { type: String, default: null },
     shiprocketAwb: { type: String, default: null },
     shiprocketLabelUrl: { type: String, default: null },
     trackingUrl: { type: String, default: null },

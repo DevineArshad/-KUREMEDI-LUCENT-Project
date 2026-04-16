@@ -1030,6 +1030,33 @@ const getShipmentIdFromShiprocketResponse = (srRes) => {
   return null;
 };
 
+const getShiprocketOrderIdFromResponse = (srRes) => {
+  const candidates = [
+    srRes?.order_id,
+    srRes?.orderId,
+    srRes?.data?.order_id,
+    srRes?.data?.orderId,
+    srRes?.response?.order_id,
+    srRes?.response?.orderId,
+    srRes?.shipments?.[0]?.order_id,
+    srRes?.shipments?.[0]?.orderId,
+    srRes?.data?.shipments?.[0]?.order_id,
+    srRes?.data?.shipments?.[0]?.orderId,
+    srRes?.response?.data?.order_id,
+    srRes?.response?.data?.orderId,
+    srRes?.response?.data?.shipments?.[0]?.order_id,
+    srRes?.response?.data?.shipments?.[0]?.orderId,
+  ];
+
+  for (const value of candidates) {
+    if (value == null) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+
+  return null;
+};
+
 const explainShiprocketShipmentIssue = (srRes) => {
   const message =
     srRes?.message ||
@@ -1049,6 +1076,17 @@ const explainShiprocketShipmentIssue = (srRes) => {
 };
 
 const readAwbFromKnownKeys = (payload) => {
+  const isValidAwb = (value) => {
+    const text = String(value || "").trim();
+    if (!text) return false;
+    if (text.length < 6 || text.length > 80) return false;
+    if (/\s/.test(text)) return false;
+    if (/https?:\/\//i.test(text)) return false;
+    if (!/[0-9]/.test(text)) return false;
+    if (!/^[A-Za-z0-9_-]+$/.test(text)) return false;
+    return true;
+  };
+
   const direct = [
     payload?.awb_code,
     payload?.awb,
@@ -1070,13 +1108,17 @@ const readAwbFromKnownKeys = (payload) => {
     payload?.response?.data?.awb_number,
     payload?.response?.data?.awb_assignments?.[0]?.awb_code,
     payload?.response?.data?.awb_assignement_details?.[0]?.awb,
-  ].find((v) => typeof v === "string" || typeof v === "number");
+  ].find((v) => (typeof v === "string" || typeof v === "number") && isValidAwb(v));
   if (direct != null && String(direct).trim()) return String(direct).trim();
 
   const scan = (node) => {
     if (!node || typeof node !== "object") return null;
     for (const [key, value] of Object.entries(node)) {
-      if (key.toLowerCase().includes("awb") && (typeof value === "string" || typeof value === "number")) {
+      if (
+        key.toLowerCase().includes("awb") &&
+        (typeof value === "string" || typeof value === "number") &&
+        isValidAwb(value)
+      ) {
         const text = String(value).trim();
         if (text) return text;
       }
@@ -1100,12 +1142,16 @@ const ensureShiprocketShipment = async (order) => {
   const forShiprocket = mapOrderToShiprocketPayload(orderWithUser);
   const srRes = await createShiprocketOrder(forShiprocket);
   const shipmentId = getShipmentIdFromShiprocketResponse(srRes);
+  const shiprocketOrderId = getShiprocketOrderIdFromResponse(srRes);
 
   if (!shipmentId) {
     return null;
   }
 
   order.shiprocketShipmentId = String(shipmentId);
+  if (shiprocketOrderId && shiprocketOrderId !== String(order.orderId || order._id || "")) {
+    order.shiprocketOrderId = String(shiprocketOrderId);
+  }
   await order.save();
   return String(shipmentId);
 };
@@ -1402,7 +1448,7 @@ const inferPaidAmount = (order) => {
 
 const attemptShiprocketCancellation = async (order) => {
   const normalizedShipmentId = String(order.shiprocketShipmentId || "").split(",")[0].trim();
-  const normalizedOrderId = String(order.orderId || order._id || "").trim();
+  const normalizedOrderId = String(order.shiprocketOrderId || "").trim();
   if (!normalizedShipmentId && !normalizedOrderId) {
     console.info("[shiprocket-cancel] skipped - no Shiprocket reference", {
       orderId: String(order._id || ""),
@@ -1411,6 +1457,7 @@ const attemptShiprocketCancellation = async (order) => {
       ok: true,
       noAction: true,
       message: "No Shiprocket reference found. Cancellation skipped on Shiprocket.",
+      stage: "none",
     };
   }
 
@@ -1470,12 +1517,65 @@ const attemptShiprocketCancellation = async (order) => {
 
   try {
     if (normalizedShipmentId) {
-      const shiprocketRes = await tryShipmentCancel();
-      const srMessage = extractMessage(shiprocketRes) || "Shipment cancelled on Shiprocket";
-      order.shiprocketCancelStatus = "success";
-      order.shiprocketCancelError = null;
-      logSuccess("cancel_shipment", srMessage);
-      return { ok: true, message: `Shipment cancelled on Shiprocket (${srMessage}).`, stage: "cancel_shipment" };
+      try {
+        const shiprocketRes = await tryShipmentCancel();
+        const srMessage = extractMessage(shiprocketRes) || "Shipment cancelled on Shiprocket";
+        order.shiprocketCancelStatus = "success";
+        order.shiprocketCancelError = null;
+        logSuccess("cancel_shipment", srMessage);
+        return { ok: true, message: `Shipment cancelled on Shiprocket (${srMessage}).`, stage: "cancel_shipment" };
+      } catch (shipmentErr) {
+        const shipmentPayload = shipmentErr.shiprocket || shipmentErr.response?.data || { message: shipmentErr.message };
+        const shipmentStatusCode = Number(
+          shipmentPayload?.status || shipmentPayload?.response?.status || shipmentErr?.response?.status || 0
+        );
+        const shipmentMessage = extractShiprocketErrorMessage(shipmentPayload);
+
+        if (isAlreadyShippedError(shipmentStatusCode, shipmentMessage)) {
+          order.shiprocketCancelStatus = "failed";
+          order.shiprocketCancelError = "Order already shipped on Shiprocket. Cancellation prevented.";
+          logFailure("already_shipped", shipmentMessage, shipmentPayload);
+          return {
+            ok: false,
+            reason: "already_shipped",
+            message: "Order already shipped on Shiprocket. Cancellation prevented.",
+            shiprocketError: shipmentPayload,
+          };
+        }
+
+        const noShipmentRecord = isNoRecordError(shipmentStatusCode, shipmentMessage);
+        if (!noShipmentRecord) {
+          throw shipmentErr;
+        }
+
+        if (normalizedOrderId) {
+          const orderCancelRes = await tryOrderCancel();
+          const orderCancelMessage = extractMessage(orderCancelRes) || "Order cancelled on Shiprocket";
+          order.shiprocketCancelStatus = "success";
+          order.shiprocketCancelError = null;
+          logSuccess("cancel_order_fallback", orderCancelMessage);
+          return {
+            ok: true,
+            message: `Order cancelled on Shiprocket (${orderCancelMessage}).`,
+            stage: "cancel_order",
+          };
+        }
+
+        order.shiprocketCancelStatus = "not_required";
+        order.shiprocketCancelError = null;
+        console.info("[shiprocket-cancel] no-op", {
+          orderId: String(order._id || ""),
+          shipmentId: normalizedShipmentId || null,
+          shiprocketOrderId: normalizedOrderId || null,
+          message: shipmentMessage,
+        });
+        return {
+          ok: true,
+          noAction: true,
+          message: "No Shiprocket shipment/order exists. Nothing to cancel on Shiprocket.",
+          stage: "no_record",
+        };
+      }
     }
 
     if (normalizedOrderId) {
@@ -1633,7 +1733,7 @@ export const updateOrderStatus = async (req, res) => {
           warnings.push(shiprocketCancelResult.message);
         }
 
-        if (shiprocketCancelResult?.noAction) {
+        if (shiprocketCancelResult?.noAction && shiprocketCancelResult?.stage === "none") {
           warnings.push("No Shiprocket reference found. No Shiprocket cancellation action was required.");
         }
 
@@ -1678,9 +1778,13 @@ export const updateOrderStatus = async (req, res) => {
             const forShiprocket = mapOrderToShiprocketPayload(orderWithUser);
             const srRes = await createShiprocketOrder(forShiprocket);
             const shipmentId = getShipmentIdFromShiprocketResponse(srRes);
+            const shiprocketOrderId = getShiprocketOrderIdFromResponse(srRes);
 
             if (shipmentId) {
               order.shiprocketShipmentId = String(shipmentId);
+              if (shiprocketOrderId && shiprocketOrderId !== String(order.orderId || order._id || "")) {
+                order.shiprocketOrderId = String(shiprocketOrderId);
+              }
             } else {
               awbError = {
                 status: 400,

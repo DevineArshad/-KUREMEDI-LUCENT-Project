@@ -497,8 +497,12 @@ export const cancelShipment = async (shipmentId) => {
 ---------------------------------------------------------- */
 export const cancelOrder = async (orderId) => {
   try {
-    const normalizedOrderId = String(orderId || "").trim();
-    if (!normalizedOrderId) {
+    const rawIds = Array.isArray(orderId) ? orderId : [orderId];
+    const normalizedOrderIds = rawIds
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+
+    if (!normalizedOrderIds.length) {
       const e = new Error("Missing orderId for Shiprocket order cancellation");
       e.shiprocket = { stage: "cancel_order", message: "orderId is required" };
       throw e;
@@ -507,7 +511,11 @@ export const cancelOrder = async (orderId) => {
     const res = await withShiprocketAuthRetry((token) =>
       axios.post(
         "https://apiv2.shiprocket.in/v1/external/orders/cancel",
-        { ids: [normalizedOrderId] },
+        {
+          // Docs indicate order_ids array; ids is sent for backward compatibility.
+          order_ids: normalizedOrderIds,
+          ids: normalizedOrderIds,
+        },
         { headers: { Authorization: `Bearer ${token}` } },
       )
     );
