@@ -1400,7 +1400,20 @@ const attemptShiprocketCancellation = async (order) => {
     const payload = srCancelErr.shiprocket || srCancelErr.response?.data || {
       message: srCancelErr.message,
     };
+    const statusCode = Number(payload?.status || payload?.response?.status || srCancelErr?.response?.status || 0);
     const errMessage = extractShiprocketErrorMessage(payload);
+
+    // Shiprocket can return 404 when shipment is already cancelled/absent.
+    // Treat this as idempotent success so admin UI stays consistent.
+    if (statusCode === 404 || /not found|does not exist|already cancel/i.test(String(errMessage || ""))) {
+      order.shiprocketCancelStatus = "success";
+      order.shiprocketCancelError = null;
+      return {
+        ok: true,
+        message: "Shipment is already cancelled or no longer present on Shiprocket.",
+      };
+    }
+
     order.shiprocketCancelStatus = "failed";
     order.shiprocketCancelError = errMessage;
     return {

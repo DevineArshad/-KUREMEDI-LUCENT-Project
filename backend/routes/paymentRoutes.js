@@ -29,6 +29,24 @@ const normalizeOrderStatus = (status) => {
   return normalized === "REFUNDED" ? "CANCELLED" : normalized;
 };
 
+const normalizeShiprocketCancelMeta = (status, error) => {
+  const normalizedStatus = String(status || "not_required").toLowerCase();
+  const message = String(error || "");
+  const isNotFound = /\b404\b|not\s*found|does\s*not\s*exist|already\s*cancel/i.test(message);
+
+  if (normalizedStatus === "failed" && isNotFound) {
+    return {
+      shiprocketCancelStatus: "success",
+      shiprocketCancelError: null,
+    };
+  }
+
+  return {
+    shiprocketCancelStatus: normalizedStatus,
+    shiprocketCancelError: error || null,
+  };
+};
+
 // ============ ADMIN (no auth - admin may use separate session) ============
 
 /**
@@ -58,7 +76,13 @@ router.get("/orders", async (req, res) => {
       return !isUnpaidOnlinePending;
     });
 
-    const mapped = visibleOrders.map((o) => ({
+    const mapped = visibleOrders.map((o) => {
+      const shiprocketCancel = normalizeShiprocketCancelMeta(
+        o.shiprocketCancelStatus,
+        o.shiprocketCancelError,
+      );
+
+      return ({
       
       _id: o._id,
       orderDate: o.createdAt,
@@ -87,10 +111,11 @@ router.get("/orders", async (req, res) => {
       shiprocketShipmentId: o.shiprocketShipmentId || null,
       shiprocketAwb: o.shiprocketAwb || null,
       shiprocketLabelUrl: o.shiprocketLabelUrl || null,
-      shiprocketCancelStatus: o.shiprocketCancelStatus || "not_required",
-      shiprocketCancelError: o.shiprocketCancelError || null,
+      shiprocketCancelStatus: shiprocketCancel.shiprocketCancelStatus,
+      shiprocketCancelError: shiprocketCancel.shiprocketCancelError,
       trackingUrl: toTrackingUrl(o.shiprocketAwb, o.trackingUrl),
-    }));
+    });
+    });
 
     res.json(mapped);
   } catch (err) {
@@ -115,6 +140,11 @@ router.get("/orders/:orderId", async (req, res) => {
     }
 
     // Map to match frontend expectations (status + tracking for app/website)
+    const shiprocketCancel = normalizeShiprocketCancelMeta(
+      order.shiprocketCancelStatus,
+      order.shiprocketCancelError,
+    );
+
     const mapped = {
       _id: order._id,
       status: normalizeOrderStatus(order.status),
@@ -144,8 +174,8 @@ router.get("/orders/:orderId", async (req, res) => {
       shiprocketShipmentId: order.shiprocketShipmentId || null,
       shiprocketAwb: order.shiprocketAwb || null,
       shiprocketLabelUrl: order.shiprocketLabelUrl || null,
-      shiprocketCancelStatus: order.shiprocketCancelStatus || "not_required",
-      shiprocketCancelError: order.shiprocketCancelError || null,
+      shiprocketCancelStatus: shiprocketCancel.shiprocketCancelStatus,
+      shiprocketCancelError: shiprocketCancel.shiprocketCancelError,
       refundId: order.refundId || order.razorpayRefundId || null,
       refundTime: order.refundAt || null,
       trackingUrl: toTrackingUrl(order.shiprocketAwb, order.trackingUrl),
