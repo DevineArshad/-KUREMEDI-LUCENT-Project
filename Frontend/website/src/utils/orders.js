@@ -91,6 +91,14 @@ export function flattenOrderedProducts(orders) {
         shiprocketShipmentId: order?.shiprocketShipmentId || null,
         shiprocketAwb: order?.shiprocketAwb || null,
         trackingUrl: order?.trackingUrl || null,
+        // Refund timeline fields
+        refundStatus: order?.refundStatus || "none",
+        paymentStatus: order?.paymentStatus || "unpaid",
+        daysRemainingForRefund: order?.daysRemainingForRefund || 0,
+        refundDeadline: order?.refundDeadline || null,
+        refundWindowActive: order?.refundWindowActive || false,
+        refundEstimatedCompletionDate: order?.refundEstimatedCompletionDate || null,
+        refundFailureReason: order?.refundFailureReason || null,
       };
     });
   });

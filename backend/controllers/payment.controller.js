@@ -20,6 +20,35 @@ import { getValidatedRazorpayConfig } from "../utils/razorpayConfig.js";
 
 const MIN_CHECKOUT_AMOUNT_KEY = "minimumCheckoutAmount";
 const FALLBACK_ITEM_WEIGHT_KG = 0.5;
+const REFUND_PROCESSING_MIN_DAYS = 3;
+const REFUND_PROCESSING_MAX_DAYS = 5;
+
+/**
+ * Calculate estimated refund completion date (3-5 working days)
+ * Excludes weekends from the count
+ */
+function calculateEstimatedRefundCompletionDate(fromDate = null) {
+  const startDate = fromDate ? new Date(fromDate) : new Date();
+  const targetDate = new Date(startDate);
+  let workingDaysAdded = 0;
+  const targetWorkingDays = REFUND_PROCESSING_MAX_DAYS;
+
+  // Start from next day to avoid same-day processing
+  targetDate.setDate(targetDate.getDate() + 1);
+
+  while (workingDaysAdded < targetWorkingDays) {
+    const dayOfWeek = targetDate.getDay();
+    // 0 = Sunday, 6 = Saturday
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      workingDaysAdded++;
+    }
+    if (workingDaysAdded < targetWorkingDays) {
+      targetDate.setDate(targetDate.getDate() + 1);
+    }
+  }
+
+  return targetDate;
+}
 
 const resolveItemWeight = (weight) => {
   const numeric = Number(weight);
@@ -1535,8 +1564,16 @@ export const updateOrderStatus = async (req, res) => {
         const paidAmount = inferPaidAmount(order);
         if (paidAmount > 0) {
           order.paymentStatus = order.refundProcessed ? "refunded" : "refund_pending";
+          
+          // Set refund timeline for paid orders
+          if (!order.refundProcessed && order.paymentStatus === "refund_pending") {
+            order.refundStatus = "pending";
+            order.refundRequestedAt = new Date();
+            order.refundEstimatedCompletionDate = calculateEstimatedRefundCompletionDate();
+          }
         } else {
           order.paymentStatus = "unpaid";
+          order.refundStatus = "none";
         }
 
         order.refundError = null;
@@ -1713,11 +1750,14 @@ export const processOrderRefund = async (req, res) => {
       if (!paymentIdForRefund) {
         order.paymentStatus = "refund_pending";
         order.refundError = "Missing Razorpay payment reference for refund.";
+        order.refundStatus = "failed";
+        order.refundFailureReason = "Missing payment reference";
         order.refundInProgress = false;
         await order.save();
         return res.status(400).json({
           message: "Missing Razorpay payment reference for refund.",
           code: "MISSING_PAYMENT_REFERENCE",
+          refundStatus: "failed",
         });
       }
 
@@ -1732,6 +1772,9 @@ export const processOrderRefund = async (req, res) => {
       } catch (refundErr) {
         order.paymentStatus = "refund_pending";
         order.refundError = refundErr.message || "Failed to process gateway refund.";
+        order.refundStatus = "failed";
+        order.refundFailureReason = refundErr.message || "Gateway refund failed";
+        order.refundRetryCount = (order.refundRetryCount || 0) + 1;
         order.refundInProgress = false;
         await order.save();
         return res.status(400).json({
@@ -1740,6 +1783,8 @@ export const processOrderRefund = async (req, res) => {
             code: refundErr.code,
             gateway: refundErr.gateway || null,
           },
+          refundStatus: "failed",
+          refundRetryCount: order.refundRetryCount,
         });
       }
     }
@@ -1757,11 +1802,14 @@ export const processOrderRefund = async (req, res) => {
     if (totalRefunded <= 0) {
       order.paymentStatus = "refund_pending";
       order.refundError = "No refundable amount found.";
+      order.refundStatus = "failed";
+      order.refundFailureReason = "No refundable amount";
       order.refundInProgress = false;
       await order.save();
       return res.status(400).json({
         message: "No refundable amount found.",
         code: "NO_REFUNDABLE_AMOUNT",
+        refundStatus: "failed",
       });
     }
 
@@ -1770,6 +1818,9 @@ export const processOrderRefund = async (req, res) => {
     order.refundAt = new Date();
     order.paymentStatus = "refunded";
     order.refundError = null;
+    order.refundStatus = "completed";
+    order.refundFailureReason = null;
+    order.refundRetryCount = (order.refundRetryCount || 0) + 1;
     order.refundInProgress = false;
     if (razorpayRefundId) {
       order.razorpayRefundId = razorpayRefundId;
@@ -1785,6 +1836,7 @@ export const processOrderRefund = async (req, res) => {
       order,
       refundId: order.refundId,
       refundTime: order.refundAt,
+      refundStatus: "completed",
     });
   } catch (err) {
     order.refundInProgress = false;

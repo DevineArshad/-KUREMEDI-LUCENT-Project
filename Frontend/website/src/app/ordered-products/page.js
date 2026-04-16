@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Download, PackageSearch, RefreshCw, ShoppingBag, CheckCircle2, Truck } from 'lucide-react';
+import { ArrowLeft, Download, PackageSearch, RefreshCw, ShoppingBag, CheckCircle2, Truck, Package, Check } from 'lucide-react';
 import { useAppContext } from '@/context/context';
 import * as api from '@/api';
 import { downloadOrderInvoicePdf } from '@/utils/invoice';
@@ -164,6 +164,16 @@ export default function OrderedProductsPage() {
                         {orderedProducts.map((item) => {
                             const meta = getOrderStatusMeta(item.status);
                             const isDelivered = item.isDelivered;
+                            
+                            // Refund timeline info
+                            const isCancelled = String(item.status || "").toUpperCase() === "CANCELLED";
+                            const refundStatus = String(item.refundStatus || "none").toLowerCase();
+                            const paymentStatus = String(item.paymentStatus || "unpaid").toLowerCase();
+                            const isPaid = ["paid", "refund_pending", "refunded"].includes(paymentStatus);
+                            const daysRemaining = Number(item.daysRemainingForRefund || 0);
+                            const refundWindowActive = Boolean(item.refundWindowActive);
+                            const refundDeadlineDate = item.refundDeadline ? new Date(String(item.refundDeadline)) : null;
+                            const estimatedCompletionDate = item.refundEstimatedCompletionDate ? new Date(String(item.refundEstimatedCompletionDate)) : null;
 
                             return (
                                 <div key={item.id} className="bg-white rounded-3xl border border-gray-200 shadow-sm p-5 md:p-6">
@@ -204,6 +214,133 @@ export default function OrderedProductsPage() {
                                                     <p className="text-gray-500">Tracking ID will appear after dispatch.</p>
                                                 )}
                                             </div>
+                                            
+                                            {/* Refund Timeline Information */}
+                                            {isCancelled && isPaid ? (
+                                                <div className="mt-4 p-3 rounded-lg border">
+                                                    {refundStatus === "completed" ? (
+                                                        <div className="bg-emerald-50 border-emerald-200">
+                                                            <div className="flex items-start gap-2">
+                                                                <span className="text-emerald-600 font-bold text-lg">✓</span>
+                                                                <div>
+                                                                    <p className="font-semibold text-emerald-900">Refunded</p>
+                                                                    <p className="text-sm text-emerald-700 mt-1">
+                                                                        Amount credited to your {item.paymentMethod === "ONLINE" ? "bank account" : "wallet"}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ) : refundStatus === "failed" ? (
+                                                        <div className="bg-red-50 border-red-200">
+                                                            <div className="flex items-start gap-2">
+                                                                <span className="text-red-600 font-bold text-lg">⚠</span>
+                                                                <div>
+                                                                    <p className="font-semibold text-red-900">Refund Failed</p>
+                                                                    <p className="text-sm text-red-700 mt-1">
+                                                                        {item.refundFailureReason || "Unable to process. Contact support."}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ) : refundStatus === "processing" ? (
+                                                        <div className="bg-blue-50 border-blue-200">
+                                                            <div className="flex items-start gap-2">
+                                                                <span className="text-blue-600 font-bold text-lg animate-pulse">⟳</span>
+                                                                <div>
+                                                                    <p className="font-semibold text-blue-900">Refund Processing</p>
+                                                                    <p className="text-sm text-blue-700 mt-1">
+                                                                        Estimated completion: {estimatedCompletionDate?.toLocaleDateString() || 'Soon'}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="bg-amber-50 border-amber-200">
+                                                            <div className="flex items-start gap-2">
+                                                                <span className="text-amber-600 font-bold text-lg">⧗</span>
+                                                                <div>
+                                                                    <p className="font-semibold text-amber-900">Refund in Process</p>
+                                                                    <p className="text-sm text-amber-700 font-medium mt-1">
+                                                                        Takes 3–5 working days
+                                                                    </p>
+                                                                    <p className="text-xs text-amber-600 mt-2">
+                                                                        Amount will be credited to your {item.paymentMethod === "ONLINE" ? "bank account" : "wallet"} within 5–7 working days after the refund is processed.
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ) : !isCancelled ? (
+                                                // Order Status Progress Bar
+                                                <div className="mt-4">
+                                                    {(() => {
+                                                        const stages = [
+                                                            { key: "PLACED", label: "Order Placed", icon: ShoppingBag },
+                                                            { key: "CONFIRMED", label: "Confirmed", icon: Check },
+                                                            { key: "DISPATCHED", label: "Shipped", icon: Truck },
+                                                            { key: "DELIVERED", label: "Delivered", icon: CheckCircle2 }
+                                                        ];
+                                                        
+                                                        const statusMap = {
+                                                            "PENDING": 0,
+                                                            "PLACED": 0,
+                                                            "CONFIRMED": 1,
+                                                            "DISPATCHED": 2,
+                                                            "DELIVERED": 3
+                                                        };
+                                                        
+                                                        const currentStatus = String(item.status || "PLACED").toUpperCase();
+                                                        const currentStageIndex = statusMap[currentStatus] || 0;
+                                                        
+                                                        return (
+                                                            <div className="space-y-3">
+                                                                {/* Progress Bar */}
+                                                                <div className="flex items-center gap-2">
+                                                                    {stages.map((stage, index) => {
+                                                                        const IconComponent = stage.icon;
+                                                                        const isCompleted = index <= currentStageIndex;
+                                                                        return (
+                                                                            <div key={stage.key} className="flex-1 flex items-center">
+                                                                                {/* Circle with Icon */}
+                                                                                <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all ${
+                                                                                    isCompleted
+                                                                                        ? "bg-teal-500 text-white"
+                                                                                        : "bg-gray-200 text-gray-400"
+                                                                                }`}>
+                                                                                    <IconComponent size={18} />
+                                                                                </div>
+                                                                                
+                                                                                {/* Connector Line */}
+                                                                                {index < stages.length - 1 && (
+                                                                                    <div className={`flex-1 h-1 mx-1 rounded transition-colors ${
+                                                                                        index < currentStageIndex
+                                                                                            ? "bg-teal-500"
+                                                                                            : "bg-gray-200"
+                                                                                    }`}></div>
+                                                                                )}
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                                
+                                                                {/* Labels */}
+                                                                <div className="flex justify-between text-xs font-medium">
+                                                                    {stages.map((stage) => (
+                                                                        <span key={stage.key} className={`text-center flex-1 ${
+                                                                            statusMap[currentStatus] >= statusMap[stage.key]
+                                                                                ? "text-teal-700"
+                                                                                : "text-gray-400"
+                                                                        }`}>
+                                                                            {stage.label}
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                </div>
+                                            ) : null}
                                         </div>
 
                                         <div className="flex flex-col items-start md:items-end gap-3 shrink-0">

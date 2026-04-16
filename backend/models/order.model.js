@@ -202,6 +202,15 @@ const orderSchema = new mongoose.Schema(
     refundProcessed: { type: Boolean, default: false },
     refundAmount: { type: Number, default: 0 },
     refundAt: { type: Date, default: null },
+    refundRequestedAt: { type: Date, default: null },
+    refundStatus: {
+      type: String,
+      enum: ["none", "pending", "processing", "completed", "failed"],
+      default: "none",
+    },
+    refundEstimatedCompletionDate: { type: Date, default: null },
+    refundFailureReason: { type: String, default: null },
+    refundRetryCount: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true },
 );

@@ -131,6 +131,7 @@ const CancelledOrders = () => {
               <th className="p-3 text-left">Amount</th>
               <th className="p-3 text-left">Payment Method</th>
               <th className="p-3 text-left">Payment Status</th>
+              <th className="p-3 text-left">Refund Status</th>
               <th className="p-3 text-left">Refund ID</th>
               <th className="p-3 text-left">Refund Time</th>
               <th className="p-3 text-left">Shiprocket Cancel</th>
@@ -140,13 +141,13 @@ const CancelledOrders = () => {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="9" className="text-center py-10">
+                <td colSpan="10" className="text-center py-10">
                   <Loader2 className="animate-spin mx-auto h-8 w-8 text-blue-500" />
                 </td>
               </tr>
             ) : orders.length === 0 ? (
               <tr>
-                <td colSpan="9" className="text-center py-10 text-gray-500">
+                <td colSpan="10" className="text-center py-10 text-gray-500">
                   No cancelled orders found
                 </td>
               </tr>
@@ -157,6 +158,17 @@ const CancelledOrders = () => {
                 const paymentStatus = String(order.paymentStatus || "unpaid").toLowerCase();
                 const canRefund = ["refund_pending", "paid"].includes(paymentStatus);
                 const shiprocketCancelStatus = String(order.shiprocketCancelStatus || "not_required").toLowerCase();
+                const refundStatus = String(order.refundStatus || "none").toLowerCase();
+
+                const getRefundStatusLabel = (status) => {
+                  if (status === "completed") return { label: "Completed", class: "bg-emerald-100 text-emerald-800" };
+                  if (status === "processing") return { label: "Processing", class: "bg-blue-100 text-blue-800" };
+                  if (status === "pending") return { label: "Pending", class: "bg-amber-100 text-amber-800" };
+                  if (status === "failed") return { label: "Failed", class: "bg-red-100 text-red-800" };
+                  return { label: "None", class: "bg-gray-100 text-gray-700" };
+                };
+
+                const statusInfo = getRefundStatusLabel(refundStatus);
 
                 return (
                   <tr key={order._id} className="border-t border-gray-100 hover:bg-gray-50">
@@ -167,6 +179,11 @@ const CancelledOrders = () => {
                     <td className="p-3">
                       <span className={`px-2 py-0.5 rounded text-xs ${paymentStatusClass(paymentStatus)}`}>
                         {paymentStatusLabel(paymentStatus)}
+                      </span>
+                    </td>
+                    <td className="p-3">
+                      <span className={`px-2 py-0.5 rounded text-xs ${statusInfo.class}`}>
+                        {statusInfo.label}
                       </span>
                     </td>
                     <td className="p-3 text-xs font-mono text-gray-700">{order.refundId || "-"}</td>

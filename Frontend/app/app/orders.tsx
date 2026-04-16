@@ -193,6 +193,13 @@ export default function OrdersScreen() {
             const daysRemaining = (item.daysRemainingForRefund as number) ?? 0;
             const refundWindowActive = (item.refundWindowActive as boolean) ?? false;
             const refundDeadlineDate = item.refundDeadline ? new Date(String(item.refundDeadline)) : null;
+            
+            // Refund timeline info
+            const isCancelled = (status as string).toUpperCase() === "CANCELLED";
+            const refundStatus = (item.refundStatus as string) || "none";
+            const paymentStatus = (item.paymentStatus as string) || "unpaid";
+            const isPaid = ["paid", "refund_pending", "refunded"].includes(paymentStatus.toLowerCase());
+            const estimatedCompletionDate = item.refundEstimatedCompletionDate ? new Date(String(item.refundEstimatedCompletionDate)) : null;
 
             return (
               <View className="bg-white rounded-2xl p-4 mb-3 border border-gray-200">
@@ -212,8 +219,60 @@ export default function OrdersScreen() {
 
                 <OrderStatusTimeline status={status} />
                 
-                {/* Refund Window Information */}
-                {refundWindowActive && (
+                {/* Refund Timeline Information */}
+                {isCancelled && isPaid ? (
+                  <View className="mt-3 p-3 rounded-lg border">
+                    {refundStatus === "completed" ? (
+                      <View className="bg-emerald-50 border-emerald-200">
+                        <View className="flex-row items-center gap-2 mb-1">
+                          <Ionicons name="checkmark-circle" size={16} color="#059669" />
+                          <Text className="text-xs font-semibold text-emerald-900">
+                            Refunded
+                          </Text>
+                        </View>
+                        <Text className="text-xs text-emerald-700 ml-6">
+                          Amount credited to your {item.paymentMethod === "ONLINE" ? "bank account" : "wallet"}
+                        </Text>
+                      </View>
+                    ) : refundStatus === "failed" ? (
+                      <View className="bg-red-50 border-red-200">
+                        <View className="flex-row items-center gap-2 mb-1">
+                          <Ionicons name="alert-circle" size={16} color="#dc2626" />
+                          <Text className="text-xs font-semibold text-red-900">
+                            Refund Failed
+                          </Text>
+                        </View>
+                        <Text className="text-xs text-red-700 ml-6">
+                          {item.refundFailureReason || "Unable to process. Contact support."}
+                        </Text>
+                      </View>
+                    ) : refundStatus === "processing" ? (
+                      <View className="bg-blue-50 border-blue-200">
+                        <View className="flex-row items-center gap-2 mb-1">
+                          <Ionicons name="hourglass" size={16} color="#0369a1" />
+                          <Text className="text-xs font-semibold text-blue-900">
+                            Refund Processing
+                          </Text>
+                        </View>
+                        <Text className="text-xs text-blue-700 ml-6">
+                          Estimated completion: {estimatedCompletionDate?.toLocaleDateString()}
+                        </Text>
+                      </View>
+                    ) : (
+                      <View className="bg-amber-50 border-amber-200">
+                        <View className="flex-row items-center gap-2 mb-1">
+                          <Ionicons name="time" size={16} color="#b45309" />
+                          <Text className="text-xs font-semibold text-amber-900">
+                            Refund in Process
+                          </Text>
+                        </View>
+                        <Text className="text-xs text-amber-700 ml-6">
+                          Takes 3–5 working days. Amount will be credited to your {item.paymentMethod === "ONLINE" ? "bank account" : "wallet"} within 5–7 working days.
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                ) : refundWindowActive && !isCancelled ? (
                   <View className="mt-3 p-3 rounded-lg bg-blue-50 border border-blue-200">
                     <View className="flex-row items-center gap-2 mb-1">
                       <Ionicons name="time-outline" size={16} color="#0369a1" />
@@ -227,7 +286,7 @@ export default function OrdersScreen() {
                       </Text>
                     )}
                   </View>
-                )}
+                ) : null}
 
                 {isDispatched && hasTracking && (
                   <Pressable

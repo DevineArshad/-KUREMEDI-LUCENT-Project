@@ -24,6 +24,18 @@ const formatDate = (d) => {
     });
 };
 
+const formatDateTime = (d) => {
+    if (!d) return "-";
+    const dt = new Date(d);
+    return dt.toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+};
+
 /* ---------------- DEFAULT ORDER ---------------- */
 
 const DEFAULT_ORDER = {
@@ -325,7 +337,7 @@ const OrderDetail = () => {
                     <Info label="Total Amount" value={`₹${order.totalAmt}`} />
                     <Info label="Status" value={(order.status || "PENDING").toUpperCase()} />
                     {order.refundId ? <Info label="Refund ID" value={order.refundId} /> : null}
-                    {order.refundTime ? <Info label="Refund Time" value={formatDate(order.refundTime)} /> : null}
+                    {order.refundTime ? <Info label="Refund Time" value={formatDateTime(order.refundTime)} /> : null}
                 </Card>
 
                 <Card title="Shipping / Shiprocket">
@@ -377,6 +389,82 @@ const OrderDetail = () => {
                         </button>
                     ) : null}
                 </Card>
+
+                {/* Refund Timeline Card - Show when order is cancelled */}
+                {String(order.status || "").toUpperCase() === "CANCELLED" && normalizedPaymentStatus !== "unpaid" ? (
+                    <Card title="Refund Timeline">
+                        <div className="space-y-3">
+                            {order.refundStatus === "completed" ? (
+                                <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3">
+                                    <div className="flex items-start gap-2">
+                                        <div className="text-emerald-600 font-bold text-xl mt-0.5">✓</div>
+                                        <div>
+                                            <p className="font-semibold text-emerald-900">Refund Processed</p>
+                                            <p className="text-sm text-emerald-700 mt-1">
+                                                Amount credited to {order.paymentMethod === "ONLINE" ? "customer's bank account" : "wallet"} on {formatDate(order.refundAt)}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : order.refundStatus === "processing" ? (
+                                <div className="rounded-lg bg-blue-50 border border-blue-200 p-3">
+                                    <div className="flex items-start gap-2">
+                                        <div className="text-blue-600 font-bold text-xl animate-pulse mt-0.5">⟳</div>
+                                        <div>
+                                            <p className="font-semibold text-blue-900">Refund Processing</p>
+                                            <p className="text-sm text-blue-700 mt-1">
+                                                Refund initiated on {formatDate(order.refundRequestedAt)}
+                                            </p>
+                                            <p className="text-xs text-blue-600 mt-2">
+                                                Estimated completion: {formatDate(order.refundEstimatedCompletionDate)}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : order.refundStatus === "pending" ? (
+                                <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
+                                    <div className="flex items-start gap-2">
+                                        <div className="text-amber-600 font-bold text-lg mt-1">⧗</div>
+                                        <div>
+                                            <p className="font-semibold text-amber-900">Refund Will Be Processed</p>
+                                            <p className="text-sm text-amber-700 font-medium mt-2">
+                                                Takes 3–5 working days
+                                            </p>
+                                            <p className="text-xs text-amber-600 mt-2">
+                                                Amount will be credited to customer's {order.paymentMethod === "ONLINE" ? "bank account" : "wallet"} within 5–7 working days after the refund is processed.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : order.refundStatus === "failed" ? (
+                                <div className="rounded-lg bg-red-50 border border-red-200 p-3">
+                                    <div className="flex items-start gap-2">
+                                        <div className="text-red-600 font-bold text-xl mt-0.5">⚠</div>
+                                        <div>
+                                            <p className="font-semibold text-red-900">Refund Failed</p>
+                                            <p className="text-sm text-red-700 mt-1">
+                                                {order.refundFailureReason || "Unable to process refund"}
+                                            </p>
+                                            {order.refundRetryCount > 0 && (
+                                                <p className="text-xs text-red-600 mt-2">
+                                                    Retry count: {order.refundRetryCount}
+                                                </p>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={handleProcessRefund}
+                                                disabled={updating}
+                                                className="mt-2 inline-flex items-center rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                                            >
+                                                Retry Refund
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
+                    </Card>
+                ) : null}
 
                 <Card title="Refund Management">
                     <Info
