@@ -2,6 +2,7 @@ import Cart from "../model/Cart.js";
 import Order from "../models/order.model.js";
 import Product from "../model/Product.js";
 import User from "../model/User.js";
+import { getRefundPolicyDays } from "../routes/config.routes.js";
 import {
   createShiprocketOrder,
   extractShiprocketAwbCode,
@@ -245,20 +246,35 @@ export const placeOrder = async (req, res) => {
  */
 export const getMyOrders = async (req, res) => {
   try {
+    const refundPolicyDays = await getRefundPolicyDays();
     const orders = await Order.find({ user: req.user._id })
       .sort({ createdAt: -1 })
       .lean();
+    
     const sanitized = orders.map((o) => {
       const awb = o.shiprocketAwb || null;
       const trackingUrl = toTrackingUrl(awb, o.trackingUrl);
       const status = normalizeOrderStatus(o.status);
-
+      
+      // Calculate refund window info
+      const orderDate = new Date(o.createdAt);
+      const refundDeadline = new Date(orderDate);
+      refundDeadline.setDate(refundDeadline.getDate() + refundPolicyDays);
+      
+      const now = new Date();
+      const daysRemaining = Math.ceil((refundDeadline - now) / (1000 * 60 * 60 * 24));
+      const refundWindowActive = daysRemaining > 0;
+      
       return {
         ...o,
         status,
         orderStatus: status,
         shiprocketAwb: awb,
         trackingUrl,
+        refundDeadline,
+        refundWindowDays: refundPolicyDays,
+        daysRemainingForRefund: Math.max(0, daysRemaining),
+        refundWindowActive,
       };
     });
     res.json(sanitized);
@@ -289,6 +305,7 @@ export const getAllOrders = async (req, res) => {
  */
 export const getOrderTracking = async (req, res) => {
   try {
+    const refundPolicyDays = await getRefundPolicyDays();
     const order = await Order.findById(req.params.orderId);
     if (!order) return res.status(404).json({ message: "Order not found" });
     if (order.user.toString() !== req.user._id.toString()) {
@@ -309,6 +326,14 @@ export const getOrderTracking = async (req, res) => {
       } catch (err) {
       }
     }
+    
+    // Calculate refund window info
+    const orderDate = new Date(order.createdAt);
+    const refundDeadline = new Date(orderDate);
+    refundDeadline.setDate(refundDeadline.getDate() + refundPolicyDays);
+    const now = new Date();
+    const daysRemaining = Math.ceil((refundDeadline - now) / (1000 * 60 * 60 * 24));
+    const refundWindowActive = daysRemaining > 0;
 
     res.json({
       order: {
@@ -320,6 +345,10 @@ export const getOrderTracking = async (req, res) => {
         items: order.items,
         shippingAddress: order.shippingAddress,
         payableAmount: order.payableAmount,
+        refundDeadline,
+        refundWindowDays: refundPolicyDays,
+        daysRemainingForRefund: Math.max(0, daysRemaining),
+        refundWindowActive,
       },
       tracking,
     });

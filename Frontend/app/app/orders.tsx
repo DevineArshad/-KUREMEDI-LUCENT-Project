@@ -188,6 +188,11 @@ export default function OrdersScreen() {
             const isDispatched =
               (status as string).toUpperCase() === "DISPATCHED" ||
               (status as string).toUpperCase() === "DELIVERED";
+            
+            // Refund window info
+            const daysRemaining = (item.daysRemainingForRefund as number) ?? 0;
+            const refundWindowActive = (item.refundWindowActive as boolean) ?? false;
+            const refundDeadlineDate = item.refundDeadline ? new Date(String(item.refundDeadline)) : null;
 
             return (
               <View className="bg-white rounded-2xl p-4 mb-3 border border-gray-200">
@@ -206,6 +211,23 @@ export default function OrdersScreen() {
                 </Text>
 
                 <OrderStatusTimeline status={status} />
+                
+                {/* Refund Window Information */}
+                {refundWindowActive && (
+                  <View className="mt-3 p-3 rounded-lg bg-blue-50 border border-blue-200">
+                    <View className="flex-row items-center gap-2 mb-1">
+                      <Ionicons name="time-outline" size={16} color="#0369a1" />
+                      <Text className="text-xs font-semibold text-blue-900">
+                        {daysRemaining === 0 ? "Last day for refund" : `${daysRemaining} ${daysRemaining === 1 ? "day" : "days"} left for refund`}
+                      </Text>
+                    </View>
+                    {refundDeadlineDate && (
+                      <Text className="text-xs text-blue-800 ml-6">
+                        via Razorpay until {refundDeadlineDate.toLocaleDateString()}
+                      </Text>
+                    )}
+                  </View>
+                )}
 
                 {isDispatched && hasTracking && (
                   <Pressable

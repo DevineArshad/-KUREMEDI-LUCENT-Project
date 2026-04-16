@@ -6,6 +6,8 @@ const router = express.Router();
 const REFERRAL_AMOUNT_KEY = "referralBonusAmount";
 const REFERRAL_REWARDS_KEY = "referralRewards";
 const MIN_CHECKOUT_AMOUNT_KEY = "minimumCheckoutAmount";
+const REFUND_POLICY_KEY = "refundPolicyDays";
+const DEFAULT_REFUND_POLICY_DAYS = 7;
 
 const DEFAULT_REWARDS = {
   retailerReferrer: 50,       // Retailer → Retailer: referrer gets ₹50
@@ -31,6 +33,13 @@ async function getMinimumCheckoutAmount() {
   const value = Number(doc?.value);
   if (!Number.isFinite(value) || value < 0) return 0;
   return Math.round(value * 100) / 100;
+}
+
+async function getRefundPolicyDays() {
+  const doc = await Config.findOne({ key: REFUND_POLICY_KEY });
+  const value = Number(doc?.value);
+  if (!Number.isFinite(value) || value < 1) return DEFAULT_REFUND_POLICY_DAYS;
+  return Math.max(1, Math.round(value));
 }
 
 /**
@@ -177,4 +186,45 @@ router.put("/minimum-checkout-amount", async (req, res) => {
   }
 });
 
+/**
+ * GET /api/config/refund-policy
+ * Public: Get refund policy (number of days for Razorpay refunds)
+ */
+router.get("/refund-policy", async (req, res) => {
+  try {
+    const days = await getRefundPolicyDays();
+    res.json({ days });
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * PUT /api/config/refund-policy
+ * Admin: Set refund policy (number of days)
+ * Body: { days }
+ */
+router.put("/refund-policy", async (req, res) => {
+  try {
+    let days = Math.round(Number(req.body.days) || DEFAULT_REFUND_POLICY_DAYS);
+    if (days < 1 || days > 365) {
+      return res.status(400).json({
+        message: "Refund policy days must be between 1 and 365",
+      });
+    }
+
+    await Config.findOneAndUpdate(
+      { key: REFUND_POLICY_KEY },
+      { value: days },
+      { upsert: true, new: true }
+    );
+
+    res.json({ message: "Refund policy updated", days });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to update refund policy" });
+  }
+});
+
 export default router;
+
+export { getRefundPolicyDays };
