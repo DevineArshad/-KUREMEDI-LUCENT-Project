@@ -8,6 +8,13 @@ const defaultApiBase = isDevelopment
 
 let API_BASE = process.env.NEXT_PUBLIC_API_URL || defaultApiBase;
 
+if (isDevelopment && typeof window !== "undefined") {
+  const host = String(window.location.hostname || "").toLowerCase();
+  if (host === "localhost" || host === "127.0.0.1") {
+    API_BASE = defaultApiBase;
+  }
+}
+
 // Normalize common mistakes from env (like `https:/.kuremedi.com/api`)
 API_BASE = API_BASE.trim();
 API_BASE = API_BASE.replace("https:/.kuremedi.com", "https://backend.kuremedi.com");
