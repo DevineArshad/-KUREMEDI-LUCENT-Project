@@ -12,7 +12,6 @@ const TABS = [
   { key: "DISPATCHED", label: "Shipped" },
   { key: "DELIVERED", label: "Delivered" },
   { key: "CANCELLED", label: "Cancelled" },
-  { key: "REFUNDED", label: "Refunded" },
 ];
 
 const STATUS_OPTIONS = [
@@ -22,7 +21,6 @@ const STATUS_OPTIONS = [
   "DISPATCHED",
   "DELIVERED",
   "CANCELLED",
-  "REFUNDED",
 ];
 
 const formatDate = (d) => {
@@ -117,18 +115,30 @@ const Orders = () => {
     CANCELLED: orders.filter((o) =>
       (o.status || "").toUpperCase() === "CANCELLED"
     ).length,
-    REFUNDED: orders.filter((o) =>
-      (o.status || "").toUpperCase() === "REFUNDED"
-    ).length,
   };
 
-  const handleStatusChange = async (orderId, newStatus) => {
+  const handleStatusChange = async (orderId, newStatus, currentStatus) => {
     console.log("orderId", orderId);
+    const normalizedCurrent = String(currentStatus || "").toUpperCase();
+    const normalizedTarget = String(newStatus || "").toUpperCase();
+
+    let extraPayload = {};
+    if (
+      normalizedTarget === "CANCELLED" &&
+      ["DISPATCHED", "DELIVERED"].includes(normalizedCurrent)
+    ) {
+      const confirmed = window.confirm(
+        "This order is already dispatched/delivered. Cancel anyway?"
+      );
+      if (!confirmed) return;
+      extraPayload.forceCancel = true;
+    }
+
     setUpdatingId(orderId);
     try {
-      const result = await updateOrderStatus(orderId, "status", newStatus);
-      if (result?.refundMessage) {
-        toast.success(result.refundMessage);
+      const result = await updateOrderStatus(orderId, "status", newStatus, extraPayload);
+      if (Array.isArray(result?.warnings) && result.warnings.length > 0) {
+        result.warnings.forEach((w) => toast(w));
       } else if (result?.awbMessage) {
         toast(result.awbMessage);
       } else if (result?.awbError) {
@@ -138,7 +148,23 @@ const Orders = () => {
       }
       await fetchOrders();
     } catch (error) {
-      toast.error(error?.response?.data?.message || "Failed to update status");
+      const apiCode = String(error?.response?.data?.code || "");
+      if (apiCode === "CANCEL_REQUIRES_CONFIRMATION") {
+        const confirmed = window.confirm(
+          "This order is already dispatched/delivered. Confirm cancellation?"
+        );
+        if (confirmed) {
+          try {
+            await updateOrderStatus(orderId, "status", newStatus, { forceCancel: true });
+            toast.success("Order status updated");
+            await fetchOrders();
+          } catch (retryError) {
+            toast.error(retryError?.response?.data?.message || "Failed to update status");
+          }
+        }
+      } else {
+        toast.error(error?.response?.data?.message || "Failed to update status");
+      }
     } finally {
       setUpdatingId(null);
     }
@@ -196,7 +222,7 @@ const Orders = () => {
       </div>
 
       <div className="bg-white rounded-xl shadow overflow-hidden overflow-x-auto">
-        <table className="w-full text-sm min-w-[900px]">
+        <table className="w-full text-sm min-w-225">
           <thead className="bg-gray-50 text-gray-600">
             <tr>
               <th className="p-3 text-left">Order ID</th>
@@ -204,6 +230,7 @@ const Orders = () => {
               <th className="p-3 text-left">Items</th>
               <th className="p-3 text-left">Amount</th>
               <th className="p-3 text-left">Payment</th>
+              <th className="p-3 text-left">Payment Status</th>
               <th className="p-3 text-left">Order Date</th>
               <th className="p-3 text-left">Status</th>
               <th className="p-3 text-left">Shipment / AWB</th>
@@ -214,13 +241,13 @@ const Orders = () => {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="9" className="text-center py-10">
+                <td colSpan="10" className="text-center py-10">
                   <Loader2 className="animate-spin mx-auto h-8 w-8 text-blue-500" />
                 </td>
               </tr>
             ) : filteredOrders.length === 0 ? (
               <tr>
-                <td colSpan="9" className="text-center py-10 text-gray-500">
+                <td colSpan="10" className="text-center py-10 text-gray-500">
                   No orders found
                 </td>
               </tr>
@@ -265,6 +292,26 @@ const Orders = () => {
                         {order.paymentMethod || "ONLINE"}
                       </span>
                     </td>
+                    <td className="p-3">
+                      <span
+                        className={`px-2 py-0.5 rounded text-xs ${String(order.paymentStatus || "unpaid").toLowerCase() === "refunded"
+                          ? "bg-green-100 text-green-800"
+                          : String(order.paymentStatus || "unpaid").toLowerCase() === "refund_pending"
+                            ? "bg-orange-100 text-orange-800"
+                            : String(order.paymentStatus || "unpaid").toLowerCase() === "paid"
+                              ? "bg-blue-100 text-blue-800"
+                              : "bg-gray-100 text-gray-700"
+                          }`}
+                      >
+                        {String(order.paymentStatus || "unpaid").toLowerCase() === "refund_pending"
+                          ? "Refund Pending"
+                          : String(order.paymentStatus || "unpaid").toLowerCase() === "refunded"
+                            ? "Refunded"
+                            : String(order.paymentStatus || "unpaid").toLowerCase() === "paid"
+                              ? "Paid"
+                              : "Unpaid"}
+                      </span>
+                    </td>
                     <td className="p-3 text-gray-600">
                       {formatDate(order.orderDate || order.createdAt)}
                     </td>
@@ -272,7 +319,7 @@ const Orders = () => {
                       <span
                         className={`px-2 py-0.5 rounded text-xs ${status === "DELIVERED"
                           ? "bg-green-100 text-green-800"
-                          : status === "CANCELLED" || status === "REFUNDED"
+                          : status === "CANCELLED"
                             ? "bg-red-100 text-red-800"
                             : status === "DISPATCHED"
                               ? "bg-blue-100 text-blue-800"
@@ -303,7 +350,7 @@ const Orders = () => {
                         <select
                           value={status}
                           onChange={(e) =>
-                            handleStatusChange(order._id, e.target.value)
+                            handleStatusChange(order._id, e.target.value, status)
                           }
                           disabled={isUpdating}
                           className="text-xs border rounded px-2 py-1 bg-white disabled:opacity-60"

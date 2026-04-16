@@ -12,7 +12,6 @@ const STATUS_OPTIONS = [
     "DISPATCHED",
     "DELIVERED",
     "CANCELLED",
-    "REFUNDED",
 ];
 
 const formatDate = (d) => {
@@ -41,7 +40,15 @@ const DEFAULT_ORDER = {
 /* ---------------- COMPONENT ---------------- */
 
 const OrderDetail = () => {
-    const { setActiveTab, selectedOrderId, getOrderById, updateOrderStatus, generateOrderAwb } = useContextApi();
+    const {
+        setActiveTab,
+        selectedOrderId,
+        getOrderById,
+        updateOrderStatus,
+        processOrderRefund,
+        retryShiprocketCancel,
+        generateOrderAwb,
+    } = useContextApi();
 
     const [order, setOrder] = useState(DEFAULT_ORDER);
     const [loading, setLoading] = useState(false);
@@ -93,12 +100,24 @@ const OrderDetail = () => {
     /* -------- STATUS UPDATE -------- */
     const handleStatusChange = async (status) => {
         if (!selectedOrderId || !updateOrderStatus) return;
+        const nextStatus = String(status || "").toUpperCase();
+        const currentStatus = String(order.status || "").toUpperCase();
+        let extraPayload = {};
+
+        if (nextStatus === "CANCELLED" && ["DISPATCHED", "DELIVERED"].includes(currentStatus)) {
+            const confirmed = window.confirm(
+                "This order is already dispatched/delivered. Cancel anyway?"
+            );
+            if (!confirmed) return;
+            extraPayload.forceCancel = true;
+        }
+
         setUpdating(true);
         try {
-            const result = await updateOrderStatus(selectedOrderId, "status", status);
+            const result = await updateOrderStatus(selectedOrderId, "status", status, extraPayload);
             setOrder((prev) => ({ ...prev, status }));
-            if (result?.refundMessage) {
-                toast.success(result.refundMessage);
+            if (Array.isArray(result?.warnings) && result.warnings.length > 0) {
+                result.warnings.forEach((w) => toast(w));
             } else if (result?.awbMessage) {
                 toast(result.awbMessage);
             } else if (result?.awbError) {
@@ -125,6 +144,66 @@ const OrderDetail = () => {
             }
         } catch (error) {
             toast.error(error?.response?.data?.message || "Failed to update status");
+        } finally {
+            setUpdating(false);
+        }
+    };
+
+    const handleProcessRefund = async () => {
+        if (!selectedOrderId || !processOrderRefund) return;
+        setUpdating(true);
+        try {
+            const result = await processOrderRefund(selectedOrderId);
+            toast.success(result?.message || "Refund processed successfully");
+            const refreshed = await getOrderById(selectedOrderId);
+            const orderData = refreshed?.data;
+            if (orderData) {
+                const addr = orderData.address || orderData.shippingAddress || {};
+                setOrder({
+                    ...orderData,
+                    address: {
+                        name: addr.shopName || orderData.user?.name || "-",
+                        phone: addr.phone || orderData.user?.phone || "-",
+                        addressLine1: addr.address || addr.addressLine1 || "-",
+                        addressLine2: addr.addressLine2 || "",
+                        city: addr.city || "",
+                        state: addr.state || "",
+                        pincode: addr.pincode || "",
+                    },
+                });
+            }
+        } catch (error) {
+            toast.error(error?.response?.data?.message || "Failed to process refund");
+        } finally {
+            setUpdating(false);
+        }
+    };
+
+    const handleRetryShiprocketCancel = async () => {
+        if (!selectedOrderId || !retryShiprocketCancel) return;
+        setUpdating(true);
+        try {
+            const result = await retryShiprocketCancel(selectedOrderId);
+            toast(result?.message || "Shiprocket cancel retried");
+            const refreshed = await getOrderById(selectedOrderId);
+            const orderData = refreshed?.data;
+            if (orderData) {
+                const addr = orderData.address || orderData.shippingAddress || {};
+                setOrder({
+                    ...orderData,
+                    address: {
+                        name: addr.shopName || orderData.user?.name || "-",
+                        phone: addr.phone || orderData.user?.phone || "-",
+                        addressLine1: addr.address || addr.addressLine1 || "-",
+                        addressLine2: addr.addressLine2 || "",
+                        city: addr.city || "",
+                        state: addr.state || "",
+                        pincode: addr.pincode || "",
+                    },
+                });
+            }
+        } catch (error) {
+            toast.error(error?.response?.data?.message || "Failed to retry shipment cancellation");
         } finally {
             setUpdating(false);
         }
@@ -176,6 +255,10 @@ const OrderDetail = () => {
         "-";
 
     const address = order.address || {};
+    const normalizedPaymentStatus = String(order.paymentStatus || "unpaid").toLowerCase();
+    const canProcessRefund =
+        String(order.status || "").toUpperCase() === "CANCELLED" &&
+        ["refund_pending", "paid"].includes(normalizedPaymentStatus);
 
     if (loading) {
         return <div className="p-6">Loading order details...</div>;
@@ -227,8 +310,22 @@ const OrderDetail = () => {
                 <Card title="Order Info">
                     <Info label="Order Date" value={formatDate(order.createdAt)} />
                     <Info label="Payment Method" value={order.paymentMethod} />
+                    <Info
+                        label="Payment Status"
+                        value={
+                            normalizedPaymentStatus === "refund_pending"
+                                ? "Refund Pending"
+                                : normalizedPaymentStatus === "refunded"
+                                    ? "Refunded"
+                                    : normalizedPaymentStatus === "paid"
+                                        ? "Paid"
+                                        : "Unpaid"
+                        }
+                    />
                     <Info label="Total Amount" value={`₹${order.totalAmt}`} />
                     <Info label="Status" value={(order.status || "PENDING").toUpperCase()} />
+                    {order.refundId ? <Info label="Refund ID" value={order.refundId} /> : null}
+                    {order.refundTime ? <Info label="Refund Time" value={formatDate(order.refundTime)} /> : null}
                 </Card>
 
                 <Card title="Shipping / Shiprocket">
@@ -267,6 +364,45 @@ const OrderDetail = () => {
                         </a>
                     ) : order.shiprocketAwb ? (
                         <p className="text-xs text-gray-500 mt-2">Label generated with AWB; re-dispatch to get link.</p>
+                    ) : null}
+                    {String(order.status || "").toUpperCase() === "CANCELLED" &&
+                        String(order.shiprocketCancelStatus || "").toLowerCase() === "failed" ? (
+                        <button
+                            type="button"
+                            onClick={handleRetryShiprocketCancel}
+                            disabled={updating}
+                            className="mt-2 inline-flex items-center rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-60"
+                        >
+                            Retry Shiprocket Cancel
+                        </button>
+                    ) : null}
+                </Card>
+
+                <Card title="Refund Management">
+                    <Info
+                        label="Payment Status"
+                        value={
+                            normalizedPaymentStatus === "refund_pending"
+                                ? "Refund Pending"
+                                : normalizedPaymentStatus === "refunded"
+                                    ? "Refunded"
+                                    : normalizedPaymentStatus === "paid"
+                                        ? "Paid"
+                                        : "Unpaid"
+                        }
+                    />
+                    <button
+                        type="button"
+                        onClick={handleProcessRefund}
+                        disabled={updating || !canProcessRefund}
+                        className="mt-2 inline-flex items-center rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+                    >
+                        {normalizedPaymentStatus === "refunded" ? "Refunded" : "Process Refund"}
+                    </button>
+                    {!canProcessRefund ? (
+                        <p className="text-xs text-gray-500 mt-2">
+                            Refund is available only for cancelled paid orders.
+                        </p>
                     ) : null}
                 </Card>
 

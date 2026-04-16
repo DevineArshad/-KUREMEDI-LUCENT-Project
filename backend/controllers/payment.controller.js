@@ -82,6 +82,8 @@ async function finalizePaidOrder({ order, userId, paymentId }) {
   if (!order || order.status !== "PENDING") return order;
 
   order.status = "PLACED";
+  order.orderStatus = "PLACED";
+  order.paymentStatus = "paid";
   order.razorpayPaymentId = paymentId;
   await order.save();
 
@@ -596,6 +598,8 @@ export const createPaymentOrder = async (req, res) => {
       walletAmount,
       razorpayAmount: razorpayAmountRupee,
       status: walletAmount >= payableAmountRupee ? "PLACED" : "PENDING",
+      orderStatus: walletAmount >= payableAmountRupee ? "PLACED" : "PENDING",
+      paymentStatus: walletAmount >= payableAmountRupee ? "paid" : "unpaid",
       paymentMethod: "ONLINE",
       shippingAddress: normalizedShippingAddress,
       notes,
@@ -1359,14 +1363,60 @@ export const generateOrderAwb = async (req, res) => {
  * Body: { orderId, status } or { orderId, [field]: value }
  * Used by admin dashboard to update order status
  */
+const inferPaidAmount = (order) => {
+  const payableAmount = roundCurrency(order.payableAmount || order.totalAmount || 0);
+  const walletUsed = roundCurrency(order.walletAmount || 0);
+  const onlinePaid = Boolean(String(order.razorpayPaymentId || "").trim());
+  if (onlinePaid) return payableAmount;
+  if (walletUsed > 0) return walletUsed;
+  return 0;
+};
+
+const attemptShiprocketCancellation = async (order) => {
+  if (!order.shiprocketShipmentId) {
+    order.shiprocketCancelStatus = "not_required";
+    order.shiprocketCancelError = null;
+    return {
+      ok: true,
+      message: "No shipment exists for this order.",
+    };
+  }
+
+  const normalizedShipmentId = String(order.shiprocketShipmentId).split(",")[0].trim();
+  order.shiprocketCancelAttempts = Number(order.shiprocketCancelAttempts || 0) + 1;
+  order.shiprocketCancelLastTriedAt = new Date();
+
+  try {
+    const shiprocketRes = await cancelShipment(Number(normalizedShipmentId) || normalizedShipmentId);
+    const srMessage =
+      shiprocketRes?.message ||
+      shiprocketRes?.status ||
+      shiprocketRes?.response?.message ||
+      "Shipment cancelled on Shiprocket";
+    order.shiprocketCancelStatus = "success";
+    order.shiprocketCancelError = null;
+    return { ok: true, message: `Shipment cancelled on Shiprocket (${srMessage}).` };
+  } catch (srCancelErr) {
+    const payload = srCancelErr.shiprocket || srCancelErr.response?.data || {
+      message: srCancelErr.message,
+    };
+    const errMessage = extractShiprocketErrorMessage(payload);
+    order.shiprocketCancelStatus = "failed";
+    order.shiprocketCancelError = errMessage;
+    return {
+      ok: false,
+      message: `Shipment cancellation failed. Use retry action. Reason: ${errMessage}`,
+      shiprocketError: payload,
+    };
+  }
+};
+
 export const updateOrderStatus = async (req, res) => {
   let awbError = null;
-  let refundMessage = null;
-  let shiprocketCancelMessage = null;
-  let razorpayRefundId = null;
-  let responseMessage = "Order status updated";
+  const warnings = [];
+
   try {
-    const { orderId, ...fields } = req.body;
+    const { orderId, forceCancel = false, ...fields } = req.body;
 
     if (!orderId) {
       return res.status(400).json({ message: "orderId is required" });
@@ -1381,7 +1431,7 @@ export const updateOrderStatus = async (req, res) => {
 
     if (fields.status) {
       const requestedStatus = String(fields.status || "").toUpperCase();
-      const allowed = ["PENDING", "PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED", "REFUNDED"];
+      const allowed = ["PENDING", "PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"];
       if (!allowed.includes(requestedStatus)) {
         return res.status(400).json({ message: "Invalid status" });
       }
@@ -1404,22 +1454,25 @@ export const updateOrderStatus = async (req, res) => {
         });
       }
 
-      // Keep refunds system-driven. Admin should trigger CANCELLED and backend promotes to REFUNDED on success.
-      if (requestedStatus === "REFUNDED" && !order.refundProcessed) {
-        return res.status(400).json({ message: "Use CANCELLED to trigger refund flow." });
+      if (
+        requestedStatus === "CANCELLED" &&
+        ["DISPATCHED", "DELIVERED"].includes(previousStatus) &&
+        !forceCancel
+      ) {
+        return res.status(409).json({
+          message:
+            "This order is already dispatched/delivered. Confirm cancellation by retrying with forceCancel=true.",
+          code: "CANCEL_REQUIRES_CONFIRMATION",
+        });
       }
 
       order.status = requestedStatus;
+      order.orderStatus = requestedStatus;
 
       const shouldEnsureShipment = requestedStatus === "DISPATCHED";
-
-      // Create shipment only when dispatching. Confirmed should not fail due to Shiprocket setup.
       if (shouldEnsureShipment && !order.shiprocketShipmentId) {
         try {
-          const orderWithUser = await Order.findById(order._id).populate(
-            "user",
-            "name email phone",
-          );
+          const orderWithUser = await Order.findById(order._id).populate("user", "name email phone");
           const forShiprocket = mapOrderToShiprocketPayload(orderWithUser);
           const srRes = await createShiprocketOrder(forShiprocket);
           const shipmentId = getShipmentIdFromShiprocketResponse(srRes);
@@ -1431,7 +1484,6 @@ export const updateOrderStatus = async (req, res) => {
               message: explainShiprocketShipmentIssue(srRes),
               response: srRes,
             };
-            responseMessage = "Order status updated with logistics warning";
           }
         } catch (srErr) {
           const payload = srErr.shiprocket || srErr.response?.data || {
@@ -1440,7 +1492,6 @@ export const updateOrderStatus = async (req, res) => {
           };
           if (isShiprocketAccessError(payload)) {
             awbError = payload;
-            responseMessage = "Order status updated with logistics warning";
           } else {
             return res.status(400).json({
               message: extractShiprocketErrorMessage(payload),
@@ -1450,8 +1501,7 @@ export const updateOrderStatus = async (req, res) => {
         }
       }
 
-      // On cancellation, refund once to wallet and restore stock once.
-      if (requestedStatus === "CANCELLED" && !["CANCELLED", "REFUNDED"].includes(previousStatus)) {
+      if (requestedStatus === "CANCELLED" && previousStatus !== "CANCELLED") {
         if (!order.stockRestoredOnCancel) {
           for (const item of order.items || []) {
             const productId = item?.product?._id || item?.product;
@@ -1464,127 +1514,21 @@ export const updateOrderStatus = async (req, res) => {
           order.stockRestoredOnCancel = true;
         }
 
-        // If shipment exists, cancel it on Shiprocket before finalizing cancellation.
-        if (order.shiprocketShipmentId) {
-          const normalizedShipmentId = String(order.shiprocketShipmentId).split(",")[0].trim();
-          try {
-            const shiprocketRes = await cancelShipment(Number(normalizedShipmentId) || normalizedShipmentId);
-            const srMessage =
-              shiprocketRes?.message ||
-              shiprocketRes?.status ||
-              shiprocketRes?.response?.message;
-            shiprocketCancelMessage = srMessage
-              ? `Shipment cancelled on Shiprocket (${srMessage}).`
-              : "Shipment cancelled on Shiprocket.";
-          } catch (srCancelErr) {
-            const payload = srCancelErr.shiprocket || srCancelErr.response?.data || {
-              message: srCancelErr.message,
-            };
-            return res.status(400).json({
-              message: `Order cancellation blocked: ${extractShiprocketErrorMessage(payload)}`,
-              shiprocketError: payload,
-            });
-          }
+        const shiprocketCancelResult = await attemptShiprocketCancellation(order);
+        if (shiprocketCancelResult.message) {
+          warnings.push(shiprocketCancelResult.message);
         }
 
-        if (!order.refundProcessed) {
-          const payableAmount = roundCurrency(order.payableAmount || order.totalAmount || 0);
-          const walletUsed = roundCurrency(order.walletAmount || 0);
-          let configuredGatewayAmount = roundCurrency(order.razorpayAmount || 0);
-          const expectedGatewayAmount = roundCurrency(Math.max(0, payableAmount - walletUsed));
-          let paymentIdForRefund = String(order.razorpayPaymentId || "").trim();
-
-          // Backfill payment id from Razorpay order when old/partial records are missing payment reference.
-          if (!paymentIdForRefund && String(order.paymentMethod || "").toUpperCase() === "ONLINE") {
-            const resolved = await resolveRazorpayPaymentForRefund(order);
-            if (resolved.paymentId) {
-              paymentIdForRefund = resolved.paymentId;
-              order.razorpayPaymentId = resolved.paymentId;
-            }
-            if (configuredGatewayAmount <= 0 && resolved.amountRupee > 0) {
-              configuredGatewayAmount = resolved.amountRupee;
-              order.razorpayAmount = resolved.amountRupee;
-            }
-          }
-
-          const gatewayRefundAmount = configuredGatewayAmount > 0 ? configuredGatewayAmount : expectedGatewayAmount;
-          const hasOnlineGatewayPayment = Boolean(
-            String(order.paymentMethod || "").toUpperCase() === "ONLINE" &&
-            paymentIdForRefund &&
-            gatewayRefundAmount > 0
-          );
-
-          let refundedViaRazorpay = 0;
-          let refundedToWallet = 0;
-
-          if (hasOnlineGatewayPayment) {
-            try {
-              const refund = await createRazorpayRefund({
-                paymentId: paymentIdForRefund,
-                amountRupee: gatewayRefundAmount,
-                orderId: order._id,
-              });
-              refundedViaRazorpay = roundCurrency(gatewayRefundAmount);
-              razorpayRefundId = refund?.id || null;
-            } catch (refundErr) {
-              return res.status(400).json({
-                message: refundErr.message || "Failed to refund online payment",
-                refundError: {
-                  code: refundErr.code,
-                  gateway: refundErr.gateway || null,
-                },
-              });
-            }
-          }
-
-          if (walletUsed > 0) {
-            const walletCredit = await creditWalletRefund({
-              order,
-              amount: walletUsed,
-              description: "Order cancelled refund (wallet portion)",
-            });
-            refundedToWallet = walletCredit.amount;
-          }
-
-          const totalRefunded = roundCurrency(refundedViaRazorpay + refundedToWallet);
-          if (totalRefunded > 0) {
-            order.refundProcessed = true;
-            order.refundAmount = totalRefunded;
-            order.refundAt = new Date();
-            if (razorpayRefundId) {
-              order.set("razorpayRefundId", String(razorpayRefundId));
-            }
-
-            // Requirement: when refund succeeds, status should be REFUNDED.
-            order.status = "REFUNDED";
-            responseMessage = "Order cancelled and refund processed";
-
-            const parts = [];
-            if (refundedViaRazorpay > 0) parts.push(`Rs ${refundedViaRazorpay.toFixed(2)} via Razorpay`);
-            if (refundedToWallet > 0) parts.push(`Rs ${refundedToWallet.toFixed(2)} to wallet`);
-            refundMessage = `Refund processed: ${parts.join(" + ")}. Total Rs ${totalRefunded.toFixed(2)}.`;
-          } else if (
-            payableAmount > 0 &&
-            String(order.paymentMethod || "").toUpperCase() === "ONLINE" &&
-            expectedGatewayAmount > 0
-          ) {
-            return res.status(400).json({
-              message: "Online payment reference is missing for this order. Please verify Razorpay payment mapping (razorpayOrderId/razorpayPaymentId) and retry.",
-            });
-          } else {
-            order.status = "CANCELLED";
-            responseMessage = "Order cancelled";
-            refundMessage = "Order cancelled. No refundable amount found.";
-          }
+        const paidAmount = inferPaidAmount(order);
+        if (paidAmount > 0) {
+          order.paymentStatus = order.refundProcessed ? "refunded" : "refund_pending";
         } else {
-          // Already refunded once; keep canonical status.
-          order.status = "REFUNDED";
-          responseMessage = "Order already cancelled and refunded";
-          refundMessage = `Order already refunded (Rs ${Number(order.refundAmount || 0).toFixed(2)}).`;
+          order.paymentStatus = "unpaid";
         }
+
+        order.refundError = null;
       }
 
-      // When admin marks as DISPATCHED (ship), assign AWB then label, manifest, pickup
       const hasAwb = Boolean(String(order.shiprocketAwb || "").trim());
       if (requestedStatus === "DISPATCHED" && order.shiprocketShipmentId && !hasAwb) {
         try {
@@ -1604,19 +1548,18 @@ export const updateOrderStatus = async (req, res) => {
               awbRes?.tracking_url_short ??
               `https://shiprocket.co/tracking/${encodeURIComponent(awbCode)}`;
 
-            // After AWB: generate label, manifest, schedule pickup
             try {
               const labelRes = await generateLabel(normalizedShipmentId);
               if (labelRes?.label_url) order.shiprocketLabelUrl = labelRes.label_url;
-            } catch (labelErr) {
+            } catch {
             }
             try {
               await generateManifest(normalizedShipmentId);
-            } catch (manifestErr) {
+            } catch {
             }
             try {
               await schedulePickup(normalizedShipmentId);
-            } catch (pickupErr) {
+            } catch {
             }
           } else {
             awbError = {
@@ -1631,42 +1574,35 @@ export const updateOrderStatus = async (req, res) => {
     }
 
     Object.keys(fields).forEach((key) => {
-      if (key !== "status" && key !== "orderId" && order.schema.paths[key]) {
+      if (key !== "status" && key !== "orderId" && key !== "forceCancel" && order.schema.paths[key]) {
         order[key] = fields[key];
       }
     });
 
     await order.save();
 
-    const json = { message: responseMessage, order };
-    if (refundMessage) {
-      json.refundMessage = refundMessage;
-    }
-    if (shiprocketCancelMessage) {
-      json.shiprocketCancelMessage = shiprocketCancelMessage;
-    }
-    if (razorpayRefundId) {
-      json.razorpayRefundId = razorpayRefundId;
-    }
+    const json = {
+      message: "Order status updated",
+      order,
+      warnings,
+    };
+
     if (awbError) {
       json.awbError = awbError;
-      const msg =
-        typeof awbError === "object" &&
-        (awbError?.response?.message || awbError?.message || "");
-      const code =
-        typeof awbError === "object" &&
-        Number(awbError?.status || awbError?.response?.status || 0);
+      const msg = typeof awbError === "object" && (awbError?.response?.message || awbError?.message || "");
+      const code = typeof awbError === "object" && Number(awbError?.status || awbError?.response?.status || 0);
       if (msg && /kyc|verification|complete your kyc/i.test(msg)) {
-        json.awbMessage = "Complete KYC on Shiprocket to generate AWB. Log in to Shiprocket dashboard → complete KYC, then set this order to DISPATCHED again.";
+        json.awbMessage = "Complete KYC on Shiprocket to generate AWB. Log in to Shiprocket dashboard and retry DISPATCHED.";
       } else if (
         code === 401 ||
         code === 403 ||
         (msg && /access forbidden|unauthorized|don't have permission|blocked/i.test(msg))
       ) {
-        json.awbMessage = "Shiprocket returned 403: Your account does not have permission to assign AWB. Complete KYC, check your plan at app.shiprocket.in, or contact Shiprocket support to enable 'Assign AWB' for your account.";
+        json.awbMessage = "Shiprocket returned 403: account does not have permission to assign AWB.";
       }
     }
-    res.json(json);
+
+    return res.json(json);
   } catch (err) {
     console.error("Error updating order status:", {
       message: err?.message,
@@ -1675,12 +1611,212 @@ export const updateOrderStatus = async (req, res) => {
       response: err?.response?.data || null,
     });
 
-    const details =
-      err?.shiprocket?.message ||
-      err?.response?.data?.message ||
-      err?.message ||
-      "Server error";
+    const details = err?.shiprocket?.message || err?.response?.data?.message || err?.message || "Server error";
+    return res.status(500).json({ message: details });
+  }
+};
 
-    res.status(500).json({ message: details });
+/**
+ * MANUAL REFUND PROCESSING (Admin)
+ * POST /api/payment/orders/:orderId/process-refund
+ */
+export const processOrderRefund = async (req, res) => {
+  const orderId = req.params.orderId || req.body?.orderId;
+  if (!orderId) {
+    return res.status(400).json({ message: "orderId is required" });
+  }
+
+  // Concurrency guard: only one refund worker can hold the order lock.
+  let order = await Order.findOneAndUpdate(
+    { _id: orderId, refundInProgress: { $ne: true } },
+    { $set: { refundInProgress: true } },
+    { new: true }
+  );
+
+  if (!order) {
+    return res.status(409).json({
+      message: "Refund is already being processed for this order.",
+      code: "REFUND_IN_PROGRESS",
+    });
+  }
+
+  try {
+    const status = String(order.status || "").toUpperCase();
+    if (status !== "CANCELLED") {
+      return res.status(400).json({
+        message: "Only cancelled orders can be refunded.",
+        code: "ORDER_NOT_CANCELLED",
+      });
+    }
+
+    if (order.refundProcessed || String(order.paymentStatus || "").toLowerCase() === "refunded") {
+      order.refundInProgress = false;
+      await order.save();
+      return res.json({
+        message: "Refund already processed.",
+        order,
+        idempotent: true,
+      });
+    }
+
+    const paymentStatus = String(order.paymentStatus || "").toLowerCase();
+    if (!["refund_pending", "paid"].includes(paymentStatus)) {
+      order.refundInProgress = false;
+      await order.save();
+      return res.status(400).json({
+        message: "This order is not eligible for refund.",
+        code: "REFUND_NOT_ELIGIBLE",
+      });
+    }
+
+    const payableAmount = roundCurrency(order.payableAmount || order.totalAmount || 0);
+    const walletUsed = roundCurrency(order.walletAmount || 0);
+    let configuredGatewayAmount = roundCurrency(order.razorpayAmount || 0);
+    const expectedGatewayAmount = roundCurrency(Math.max(0, payableAmount - walletUsed));
+    let paymentIdForRefund = String(order.razorpayPaymentId || "").trim();
+
+    if (!paymentIdForRefund && String(order.paymentMethod || "").toUpperCase() === "ONLINE") {
+      const resolved = await resolveRazorpayPaymentForRefund(order);
+      if (resolved.paymentId) {
+        paymentIdForRefund = resolved.paymentId;
+        order.razorpayPaymentId = resolved.paymentId;
+      }
+      if (configuredGatewayAmount <= 0 && resolved.amountRupee > 0) {
+        configuredGatewayAmount = resolved.amountRupee;
+        order.razorpayAmount = resolved.amountRupee;
+      }
+    }
+
+    const gatewayRefundAmount = configuredGatewayAmount > 0 ? configuredGatewayAmount : expectedGatewayAmount;
+    const shouldRefundGateway = Boolean(
+      String(order.paymentMethod || "").toUpperCase() === "ONLINE" && expectedGatewayAmount > 0
+    );
+
+    let refundedViaRazorpay = 0;
+    let refundedToWallet = 0;
+    let razorpayRefundId = null;
+
+    if (shouldRefundGateway) {
+      if (!paymentIdForRefund) {
+        order.paymentStatus = "refund_pending";
+        order.refundError = "Missing Razorpay payment reference for refund.";
+        order.refundInProgress = false;
+        await order.save();
+        return res.status(400).json({
+          message: "Missing Razorpay payment reference for refund.",
+          code: "MISSING_PAYMENT_REFERENCE",
+        });
+      }
+
+      try {
+        const refund = await createRazorpayRefund({
+          paymentId: paymentIdForRefund,
+          amountRupee: gatewayRefundAmount,
+          orderId: order._id,
+        });
+        refundedViaRazorpay = roundCurrency(gatewayRefundAmount);
+        razorpayRefundId = String(refund?.id || "").trim() || null;
+      } catch (refundErr) {
+        order.paymentStatus = "refund_pending";
+        order.refundError = refundErr.message || "Failed to process gateway refund.";
+        order.refundInProgress = false;
+        await order.save();
+        return res.status(400).json({
+          message: order.refundError,
+          refundError: {
+            code: refundErr.code,
+            gateway: refundErr.gateway || null,
+          },
+        });
+      }
+    }
+
+    if (walletUsed > 0) {
+      const walletCredit = await creditWalletRefund({
+        order,
+        amount: walletUsed,
+        description: "Order cancelled refund (wallet portion)",
+      });
+      refundedToWallet = walletCredit.amount;
+    }
+
+    const totalRefunded = roundCurrency(refundedViaRazorpay + refundedToWallet);
+    if (totalRefunded <= 0) {
+      order.paymentStatus = "refund_pending";
+      order.refundError = "No refundable amount found.";
+      order.refundInProgress = false;
+      await order.save();
+      return res.status(400).json({
+        message: "No refundable amount found.",
+        code: "NO_REFUNDABLE_AMOUNT",
+      });
+    }
+
+    order.refundProcessed = true;
+    order.refundAmount = totalRefunded;
+    order.refundAt = new Date();
+    order.paymentStatus = "refunded";
+    order.refundError = null;
+    order.refundInProgress = false;
+    if (razorpayRefundId) {
+      order.razorpayRefundId = razorpayRefundId;
+      order.refundId = razorpayRefundId;
+    } else {
+      order.refundId = `WALLET-${String(order._id).slice(-6)}-${Date.now()}`;
+    }
+
+    await order.save();
+
+    return res.json({
+      message: "Refund processed successfully.",
+      order,
+      refundId: order.refundId,
+      refundTime: order.refundAt,
+    });
+  } catch (err) {
+    order.refundInProgress = false;
+    await order.save();
+    return res.status(500).json({
+      message: err?.message || "Failed to process refund",
+      code: "PROCESS_REFUND_FAILED",
+    });
+  }
+};
+
+/**
+ * RETRY SHIPROCKET CANCELLATION (Admin)
+ * POST /api/payment/orders/:orderId/retry-shiprocket-cancel
+ */
+export const retryShiprocketCancel = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    if (!orderId) {
+      return res.status(400).json({ message: "orderId is required" });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    if (String(order.status || "").toUpperCase() !== "CANCELLED") {
+      return res.status(400).json({
+        message: "Shiprocket cancellation retry is allowed only for cancelled orders.",
+      });
+    }
+
+    const result = await attemptShiprocketCancellation(order);
+    await order.save();
+
+    return res.json({
+      message: result.message,
+      ok: result.ok,
+      order,
+      shiprocketError: result.shiprocketError || null,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      message: err?.message || "Failed to retry Shiprocket cancellation",
+    });
   }
 };

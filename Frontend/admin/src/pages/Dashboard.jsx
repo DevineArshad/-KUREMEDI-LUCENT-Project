@@ -49,6 +49,7 @@ import ProcessingOrders from "../components/OrderManagement/ProcessingOrders";
 import DeliveredOrders from "../components/OrderManagement/DeliveredOrders";
 import Returns from "../components/OrderManagement/Returns";
 import OrderDetail from "../components/OrderManagement/OrderDetail";
+import CancelledOrders from "../components/OrderManagement/CancelledOrders";
 import AllAgents from "../components/AgentManagement/AllAgents";
 import ReferralTracking from "../components/AgentManagement/ReferralTracking";
 import LowStockAlerts from "../components/LowStockAlerts";
@@ -183,6 +184,8 @@ const Dashboard = () => {
         return <SystemConfig />;
       case "All Orders":
         return <Orders />;
+      case "Cancelled Orders":
+        return <CancelledOrders />;
       case "Withdrawals":
         return <Withdrawals />;
       case "Transactions":

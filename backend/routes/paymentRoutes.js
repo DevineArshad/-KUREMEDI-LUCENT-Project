@@ -7,6 +7,8 @@ import {
   generateOrderAwb,
   getPaymentStatus,
   handleRazorpayWebhook,
+  processOrderRefund,
+  retryShiprocketCancel,
   verifyPayment,
   updateOrderStatus,
 } from "../controllers/payment.controller.js";
@@ -20,6 +22,11 @@ const toTrackingUrl = (awb, trackingUrl) => {
   if (trackingUrl.includes("track.shiprocket.in")) return safe;
   if (trackingUrl.includes("shiprocket.in/shipment-tracking")) return safe;
   return trackingUrl;
+};
+
+const normalizeOrderStatus = (status) => {
+  const normalized = String(status || "").toUpperCase();
+  return normalized === "REFUNDED" ? "CANCELLED" : normalized;
 };
 
 // ============ ADMIN (no auth - admin may use separate session) ============
@@ -72,11 +79,16 @@ router.get("/orders", async (req, res) => {
         },
       })),
       user: o.user,
-      status: o.status,
+      status: normalizeOrderStatus(o.status),
+      paymentStatus: o.paymentStatus || "unpaid",
       paymentMethod: o.paymentMethod,
+      refundId: o.refundId || o.razorpayRefundId || null,
+      refundTime: o.refundAt || null,
       shiprocketShipmentId: o.shiprocketShipmentId || null,
       shiprocketAwb: o.shiprocketAwb || null,
       shiprocketLabelUrl: o.shiprocketLabelUrl || null,
+      shiprocketCancelStatus: o.shiprocketCancelStatus || "not_required",
+      shiprocketCancelError: o.shiprocketCancelError || null,
       trackingUrl: toTrackingUrl(o.shiprocketAwb, o.trackingUrl),
     }));
 
@@ -105,7 +117,8 @@ router.get("/orders/:orderId", async (req, res) => {
     // Map to match frontend expectations (status + tracking for app/website)
     const mapped = {
       _id: order._id,
-      status: order.status,
+      status: normalizeOrderStatus(order.status),
+      paymentStatus: order.paymentStatus || "unpaid",
       createdAt: order.createdAt,
       paymentMethod: order.paymentMethod || "COD",
       totalAmt: order.payableAmount ?? order.totalAmount ?? 0,
@@ -131,6 +144,10 @@ router.get("/orders/:orderId", async (req, res) => {
       shiprocketShipmentId: order.shiprocketShipmentId || null,
       shiprocketAwb: order.shiprocketAwb || null,
       shiprocketLabelUrl: order.shiprocketLabelUrl || null,
+      shiprocketCancelStatus: order.shiprocketCancelStatus || "not_required",
+      shiprocketCancelError: order.shiprocketCancelError || null,
+      refundId: order.refundId || order.razorpayRefundId || null,
+      refundTime: order.refundAt || null,
       trackingUrl: toTrackingUrl(order.shiprocketAwb, order.trackingUrl),
     };
 
@@ -147,6 +164,8 @@ router.get("/orders/:orderId", async (req, res) => {
  */
 router.put("/update-status", updateOrderStatus);
 router.post("/orders/:orderId/shiprocket/generate-awb", generateOrderAwb);
+router.post("/orders/:orderId/process-refund", processOrderRefund);
+router.post("/orders/:orderId/retry-shiprocket-cancel", retryShiprocketCancel);
 
 // ============ USER (protected) ============
 

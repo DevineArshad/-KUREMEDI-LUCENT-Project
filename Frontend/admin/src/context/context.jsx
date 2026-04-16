@@ -435,11 +435,11 @@ export const ContextProvider = ({ children }) => {
       throw error;
     }
   };
-  const updateOrderStatus = async (orderId, field, value) => {
+  const updateOrderStatus = async (orderId, field, value, extraPayload = {}) => {
     try {
       const normalizedValue = field === "status" ? normalizeOrderStatus(value) : value;
       // dynamically assign the field to update
-      const payload = { orderId, [field]: normalizedValue };
+      const payload = { orderId, [field]: normalizedValue, ...extraPayload };
       const requestConfig = { headers: getAuthHeaders() };
 
       const response = await axios.put(
@@ -473,6 +473,34 @@ export const ContextProvider = ({ children }) => {
       }
 
       console.error("❌ Error updating order status:", error.response?.data || error);
+      throw error;
+    }
+  };
+
+  const processOrderRefund = async (orderId) => {
+    try {
+      const response = await axios.post(
+        `${BASE_URL}/payment/orders/${orderId}/process-refund`,
+        {},
+        { headers: getAuthHeaders() }
+      );
+      return response.data;
+    } catch (error) {
+      console.error("❌ Error processing refund:", error.response?.data || error);
+      throw error;
+    }
+  };
+
+  const retryShiprocketCancel = async (orderId) => {
+    try {
+      const response = await axios.post(
+        `${BASE_URL}/payment/orders/${orderId}/retry-shiprocket-cancel`,
+        {},
+        { headers: getAuthHeaders() }
+      );
+      return response.data;
+    } catch (error) {
+      console.error("❌ Error retrying Shiprocket cancellation:", error.response?.data || error);
       throw error;
     }
   };
@@ -1407,7 +1435,7 @@ export const ContextProvider = ({ children }) => {
         deleteAllKycDocuments,
         updateBlog, getAllUsers, deleteUser, blockUser, getDeletedUsersHistory, kycStatusUpdate, updateUserKYCStatus,
         changeAdminPassword, verifyAdminSecurityPassword, getAdminSecurityQuestions, updateAdminSecurityQuestions, requestAdminEmailChangeOldOtp, verifyAdminEmailChangeOldOtp, verifyAdminEmailChangeNewOtp, getMyProfile, getAdminUsers, createAdminUser, deleteAdminUser,
-        deleteBlog, fetchblogCategories, addblogCategory, updateblogCategory, deleteblogCategory, enquiries, addEnquiry, updateEnquiry, deleteEnquiry, fetchEnquiries, user, login, getallOrders, createProducts, createProductWithFormData, updateProductWithFormData, updateProducts, deleteProducts, bulkImportProducts, deletesubcategory, createsubcategory, updatesubcategory, updateOrderStatus, generateOrderAwb, getAllEnquiries, logout, activeTab, setActiveTab, GetSubCategoryData, GetCategoryData, AddCategoryData, createCategoryWithFormData, updateCategoryWithFormData, uploadImage, UpdateCategoryData, DeleteCategory, getBrands, createBrand, createBrandWithFormData, updateBrand, updateBrandWithFormData, deleteBrand, getReferralAmount, setReferralAmount, getReferralRewards, setReferralRewards,
+        deleteBlog, fetchblogCategories, addblogCategory, updateblogCategory, deleteblogCategory, enquiries, addEnquiry, updateEnquiry, deleteEnquiry, fetchEnquiries, user, login, getallOrders, createProducts, createProductWithFormData, updateProductWithFormData, updateProducts, deleteProducts, bulkImportProducts, deletesubcategory, createsubcategory, updatesubcategory, updateOrderStatus, processOrderRefund, retryShiprocketCancel, generateOrderAwb, getAllEnquiries, logout, activeTab, setActiveTab, GetSubCategoryData, GetCategoryData, AddCategoryData, createCategoryWithFormData, updateCategoryWithFormData, uploadImage, UpdateCategoryData, DeleteCategory, getBrands, createBrand, createBrandWithFormData, updateBrand, updateBrandWithFormData, deleteBrand, getReferralAmount, setReferralAmount, getReferralRewards, setReferralRewards,
         getAgents, getAgentById, createAgent, updateAgent, deleteAgent, updateAgentKycStatus, getUploadBaseUrl, getReferralsTracking, reprocessReferralReward,
         getMarketingBanners, createMarketingBanner, updateMarketingBanner, deleteMarketingBanner,
         getSupportTickets, getSupportTicketById, replySupportTicket, updateSupportTicketStatus, addSupportCallNote, updateSupportTicketNotes, initiateSupportCall,

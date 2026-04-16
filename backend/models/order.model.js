@@ -119,7 +119,7 @@ const orderSchema = new mongoose.Schema(
     },
     orderStatus: {
       type: String,
-      enum: ["PENDING", "PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED", "REFUNDED"],
+      enum: ["PENDING", "PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"],
       default: "PLACED",
     },
     user: {
@@ -153,8 +153,14 @@ const orderSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["PENDING", "PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED", "REFUNDED"],
+      enum: ["PENDING", "PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"],
       default: "PLACED",
+    },
+    paymentStatus: {
+      type: String,
+      enum: ["unpaid", "paid", "refund_pending", "refunded"],
+      default: "unpaid",
+      index: true,
     },
     paymentMethod: {
       type: String,
@@ -181,7 +187,18 @@ const orderSchema = new mongoose.Schema(
     shiprocketAwb: { type: String, default: null },
     shiprocketLabelUrl: { type: String, default: null },
     trackingUrl: { type: String, default: null },
+    shiprocketCancelStatus: {
+      type: String,
+      enum: ["not_required", "pending", "success", "failed"],
+      default: "not_required",
+    },
+    shiprocketCancelError: { type: String, default: null },
+    shiprocketCancelAttempts: { type: Number, default: 0 },
+    shiprocketCancelLastTriedAt: { type: Date, default: null },
     stockRestoredOnCancel: { type: Boolean, default: false },
+    refundInProgress: { type: Boolean, default: false },
+    refundError: { type: String, default: null },
+    refundId: { type: String, default: null },
     refundProcessed: { type: Boolean, default: false },
     refundAmount: { type: Number, default: 0 },
     refundAt: { type: Date, default: null },
@@ -196,6 +213,16 @@ orderSchema.pre("save", async function () {
 
   if (!this.orderStatus && this.status) {
     this.orderStatus = this.status;
+  }
+
+  // Backward compatibility for historical records that stored REFUNDED as order status.
+  if (String(this.status || "").toUpperCase() === "REFUNDED") {
+    this.status = "CANCELLED";
+    this.paymentStatus = "refunded";
+  }
+  if (String(this.orderStatus || "").toUpperCase() === "REFUNDED") {
+    this.orderStatus = "CANCELLED";
+    this.paymentStatus = "refunded";
   }
 
   if (!(Number(this.totalWeight) > 0)) {

@@ -39,6 +39,11 @@ const toTrackingUrl = (awb, trackingUrl) => {
   return trackingUrl;
 };
 
+const normalizeOrderStatus = (status) => {
+  const normalized = String(status || "").toUpperCase();
+  return normalized === "REFUNDED" ? "CANCELLED" : normalized;
+};
+
 const syncShiprocketFields = (order, { shipmentId, awbCode, courierName, trackingUrl, status }) => {
   const normalizedStatus = normalizeShiprocketStatus(status);
 
@@ -199,6 +204,8 @@ export const placeOrder = async (req, res) => {
       pincode: String(shippingAddress?.pincode || "").trim(),
       paymentMode: "COD",
       orderStatus: "PLACED",
+      status: "PLACED",
+      paymentStatus: "unpaid",
       totalAmount,
       totalGstAmount,
       payableAmount,
@@ -244,9 +251,12 @@ export const getMyOrders = async (req, res) => {
     const sanitized = orders.map((o) => {
       const awb = o.shiprocketAwb || null;
       const trackingUrl = toTrackingUrl(awb, o.trackingUrl);
+      const status = normalizeOrderStatus(o.status);
 
       return {
         ...o,
+        status,
+        orderStatus: status,
         shiprocketAwb: awb,
         trackingUrl,
       };
@@ -303,7 +313,7 @@ export const getOrderTracking = async (req, res) => {
     res.json({
       order: {
         _id: order._id,
-        status: order.status,
+        status: normalizeOrderStatus(order.status),
         trackingUrl: toTrackingUrl(order.shiprocketAwb, order.trackingUrl),
         trackingNumber: order.shiprocketAwb || null,
         createdAt: order.createdAt,
@@ -326,11 +336,24 @@ export const updateOrderStatus = async (req, res) => {
   try {
     const { status } = req.body;
 
+    const normalized = String(status || "").toUpperCase();
+    const allowed = ["PENDING", "PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"];
+    if (!allowed.includes(normalized)) {
+      return res.status(400).json({ message: "Invalid status" });
+    }
+
     const order = await Order.findById(req.params.orderId);
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    order.status = status;
-    order.orderStatus = status;
+    order.status = normalized;
+    order.orderStatus = normalized;
+
+    if (normalized === "CANCELLED") {
+      const paidAmount =
+        Number(order.walletAmount || 0) > 0 || Boolean(String(order.razorpayPaymentId || "").trim());
+      order.paymentStatus = paidAmount ? "refund_pending" : "unpaid";
+    }
+
     await order.save();
 
     res.json({
