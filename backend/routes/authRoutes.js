@@ -61,6 +61,9 @@ const generateToken = (payload, expiresIn = "7d") =>
 
 const normalizeEmail = (value) => String(value || "").trim().toLowerCase();
 const normalizePhone = (value) => String(value || "").trim();
+const TEST_OTP_PHONE = "9876543211";
+const TEST_OTP_CODE = "123456";
+const isTestOtpMode = () => process.env.NODE_ENV !== "production";
 const PRIMARY_ADMIN_EMAIL = normalizeEmail(
   process.env.PRIMARY_ADMIN_EMAIL || "ankurkushwaha237@gmail.com"
 );
@@ -167,6 +170,20 @@ router.post("/send-otp", async (req, res) => {
       return res.status(400).json({ message: "Phone number is required" });
 
     const normalizedPhone = String(phone).trim();
+
+    if (isTestOtpMode()) {
+      await Otp.deleteMany({ phone: { $ne: TEST_OTP_PHONE } });
+
+      if (normalizedPhone !== TEST_OTP_PHONE) {
+        return res.status(400).json({ message: "Invalid test number" });
+      }
+
+      return res.json({
+        message: "OTP sent successfully",
+        devOtp: TEST_OTP_CODE,
+      });
+    }
+
     const otp = crypto.randomInt(100000, 999999).toString();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
@@ -209,17 +226,42 @@ router.post("/verify-otp", async (req, res) => {
         .json({ message: "Phone number and OTP are required" });
 
     const normalizedPhone = String(phone).trim();
-    const otpDoc = await Otp.findOne({
-      phone: normalizedPhone,
-      otp: String(otp).trim(),
-    });
+    const normalizedOtp = String(otp).trim();
+    let verifiedMessage = "OTP verified successfully";
 
-    if (!otpDoc)
-      return res.status(401).json({ message: "Invalid or expired OTP" });
-    if (new Date() > otpDoc.expiresAt)
-      return res.status(401).json({ message: "OTP has expired" });
+    if (isTestOtpMode()) {
+      await Otp.deleteMany({ phone: { $ne: TEST_OTP_PHONE } });
 
-    await Otp.deleteOne({ _id: otpDoc._id });
+      if (normalizedPhone !== TEST_OTP_PHONE) {
+        return res.status(401).json({ message: "Invalid test number" });
+      }
+      if (normalizedOtp !== TEST_OTP_CODE) {
+        return res.status(401).json({ message: "Invalid OTP" });
+      }
+
+      // In test mode, persist OTP only for the allowed test pair.
+      await Otp.findOneAndUpdate(
+        { phone: normalizedPhone },
+        {
+          phone: normalizedPhone,
+          otp: TEST_OTP_CODE,
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+        },
+        { upsert: true, new: true }
+      );
+    } else {
+      const otpDoc = await Otp.findOne({
+        phone: normalizedPhone,
+        otp: normalizedOtp,
+      });
+
+      if (!otpDoc)
+        return res.status(401).json({ message: "Invalid or expired OTP" });
+      if (new Date() > otpDoc.expiresAt)
+        return res.status(401).json({ message: "OTP has expired" });
+
+      await Otp.deleteOne({ _id: otpDoc._id });
+    }
 
     const user = await User.findOne({ phone: normalizedPhone });
     if (user) {
@@ -241,7 +283,7 @@ router.post("/verify-otp", async (req, res) => {
       const userObj = user.toObject();
       delete userObj.password;
       return res.json({
-        message: "Login successful",
+        message: verifiedMessage,
         user: userObj,
         token: generateToken({ id: user._id }),
       });
@@ -253,7 +295,7 @@ router.post("/verify-otp", async (req, res) => {
       "10m"
     );
     res.json({
-      message: "Complete registration",
+      message: verifiedMessage,
       needsRegistration: true,
       phone: normalizedPhone,
       tempToken,
