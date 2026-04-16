@@ -28,6 +28,20 @@ if (!/\/api\/?$/i.test(API_BASE)) {
 }
 
 export const API_BASE_URL = API_BASE;
+const LOCAL_API_BASE = "http://localhost:5000/api";
+const REMOTE_API_BASE = "https://backend.kuremedi.com/api";
+
+export const API_BASE_CANDIDATES = Array.from(
+  new Set(
+    [
+      API_BASE_URL,
+      isDevelopment ? LOCAL_API_BASE : REMOTE_API_BASE,
+      /localhost|127\.0\.0\.1/i.test(API_BASE_URL) ? REMOTE_API_BASE : LOCAL_API_BASE,
+      REMOTE_API_BASE,
+    ].filter(Boolean).map((value) => String(value).trim())
+  )
+);
+
 // If API is relative (/api), uploads should also be relative (/uploads).
 // If API is absolute, drop trailing /api so uploads use same backend host.
 export const API_UPLOAD_BASE =

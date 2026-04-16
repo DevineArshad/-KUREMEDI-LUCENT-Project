@@ -1,8 +1,8 @@
 /**
  * Website API - mirrors app API structure. Same endpoints as React Native app.
  */
-import { API_BASE_URL } from "../config";
-import { apiGet, apiPost, apiPut, apiDelete } from "./client";
+ import { API_BASE_CANDIDATES } from "../config";
+ import { apiGet, apiPost, apiPut, apiDelete } from "./client";
 
 const parseFetchResponse = async (res, fallbackLabel = "Request") => {
   const raw = await res.text();
@@ -21,6 +21,42 @@ const parseFetchResponse = async (res, fallbackLabel = "Request") => {
     throw error;
   }
   return data;
+};
+
+const isNetworkFailure = (error) => {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("network request failed") ||
+    message.includes("failed to fetch") ||
+    message.includes("fetch failed") ||
+    message.includes("networkerror")
+  );
+};
+
+const fetchWithFallback = async (path, init = {}) => {
+  const bases = Array.isArray(API_BASE_CANDIDATES) ? API_BASE_CANDIDATES : [];
+  let lastError = null;
+
+  for (const base of bases) {
+    try {
+      return await fetch(`${base}${path}`, init);
+    } catch (error) {
+      lastError = error;
+      if (!isNetworkFailure(error)) {
+        throw error;
+      }
+    }
+  }
+
+  if (lastError) {
+    const error = new Error(
+      `Network request failed after trying ${bases.length} API host(s). Check backend availability and NEXT_PUBLIC_API_URL.`
+    );
+    error.cause = lastError;
+    throw error;
+  }
+
+  throw new Error("No API base URL configured");
 };
 
 export const getProducts = (params = {}) => {
@@ -51,7 +87,7 @@ export const verifyPasswordResetOtp = (phone, otp) =>
   apiPost("/auth/password-reset/verify-otp", { phone, otp });
 
 export const completePasswordReset = (tempToken, data) =>
-  fetch(`${API_BASE_URL}/auth/password-reset/complete`, {
+  fetchWithFallback(`/auth/password-reset/complete`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -61,7 +97,7 @@ export const completePasswordReset = (tempToken, data) =>
   }).then((r) => parseFetchResponse(r, "Password reset"));
 
 export const completeRegistration = (tempToken, data) =>
-  fetch(`${API_BASE_URL}/auth/complete-registration`, {
+  fetchWithFallback(`/auth/complete-registration`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -94,7 +130,7 @@ export const submitKyc = async (formData) => {
   const timeoutId = setTimeout(() => controller.abort(), 180000);
   let res;
   try {
-    res = await fetch(`${API_BASE_URL}/auth/kyc`, {
+    res = await fetchWithFallback(`/auth/kyc`, {
       method: "PUT",
       headers: { Authorization: `Bearer ${token}` },
       body: formData,

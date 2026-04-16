@@ -1,4 +1,4 @@
-import { API_BASE_URL } from "../config";
+import { API_BASE_CANDIDATES } from "../config";
 
 const getToken = () => (typeof window !== "undefined" ? localStorage.getItem("token") : null);
 
@@ -31,6 +31,42 @@ function forceLogoutIfBlocked(status, data) {
   }
 }
 
+function isNetworkFailure(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("network request failed") ||
+    message.includes("failed to fetch") ||
+    message.includes("fetch failed") ||
+    message.includes("networkerror")
+  );
+}
+
+async function fetchWithFallback(path, init = {}) {
+  const bases = Array.isArray(API_BASE_CANDIDATES) ? API_BASE_CANDIDATES : [];
+  let lastError = null;
+
+  for (const base of bases) {
+    try {
+      return await fetch(`${base}${path}`, init);
+    } catch (error) {
+      lastError = error;
+      if (!isNetworkFailure(error)) {
+        throw error;
+      }
+    }
+  }
+
+  if (lastError) {
+    const error = new Error(
+      `Network request failed after trying ${bases.length} API host(s). Check backend availability and NEXT_PUBLIC_API_URL.`
+    );
+    error.cause = lastError;
+    throw error;
+  }
+
+  throw new Error("No API base URL configured");
+}
+
 async function parseResponse(res) {
   const raw = await res.text();
   let data = null;
@@ -55,7 +91,7 @@ async function parseResponse(res) {
 }
 
 export async function apiGet(path) {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const res = await fetchWithFallback(path, {
     headers: {
       ...buildAuthHeader(),
     },
@@ -64,7 +100,7 @@ export async function apiGet(path) {
 }
 
 export async function apiPost(path, body) {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const res = await fetchWithFallback(path, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -76,7 +112,7 @@ export async function apiPost(path, body) {
 }
 
 export async function apiPut(path, body) {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const res = await fetchWithFallback(path, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -88,7 +124,7 @@ export async function apiPut(path, body) {
 }
 
 export async function apiDelete(path) {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const res = await fetchWithFallback(path, {
     method: "DELETE",
     headers: {
       ...buildAuthHeader(),
