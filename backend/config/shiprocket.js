@@ -491,3 +491,42 @@ export const cancelShipment = async (shipmentId) => {
     throw e;
   }
 };
+
+/* ---------------------------------------------------------
+   7️⃣ Cancel Order (Fallback for NEW / non-dispatched records)
+---------------------------------------------------------- */
+export const cancelOrder = async (orderId) => {
+  try {
+    const normalizedOrderId = String(orderId || "").trim();
+    if (!normalizedOrderId) {
+      const e = new Error("Missing orderId for Shiprocket order cancellation");
+      e.shiprocket = { stage: "cancel_order", message: "orderId is required" };
+      throw e;
+    }
+
+    const res = await withShiprocketAuthRetry((token) =>
+      axios.post(
+        "https://apiv2.shiprocket.in/v1/external/orders/cancel",
+        { ids: [normalizedOrderId] },
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
+    );
+
+    return res.data;
+  } catch (err) {
+    const responseMessage =
+      err.response?.data?.message ||
+      err.response?.data?.error ||
+      err.response?.data?.errors?.[0]?.message ||
+      err.message ||
+      "Failed to cancel order";
+    const e = new Error(responseMessage);
+    e.shiprocket = {
+      stage: "cancel_order",
+      message: responseMessage,
+      response: err.response?.data,
+      status: err.response?.status,
+    };
+    throw e;
+  }
+};

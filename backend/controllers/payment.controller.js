@@ -14,6 +14,7 @@ import {
   generateManifest,
   schedulePickup,
   cancelShipment,
+  cancelOrder,
 } from "../config/shiprocket.js";
 import { calculateLinePricing } from "../utils/pricing.js";
 import { getValidatedRazorpayConfig } from "../utils/razorpayConfig.js";
@@ -1400,52 +1401,140 @@ const inferPaidAmount = (order) => {
 };
 
 const attemptShiprocketCancellation = async (order) => {
-  if (!order.shiprocketShipmentId) {
-    order.shiprocketCancelStatus = "not_required";
-    order.shiprocketCancelError = null;
+  const normalizedShipmentId = String(order.shiprocketShipmentId || "").split(",")[0].trim();
+  const normalizedOrderId = String(order.orderId || order._id || "").trim();
+  if (!normalizedShipmentId && !normalizedOrderId) {
+    console.info("[shiprocket-cancel] skipped - no Shiprocket reference", {
+      orderId: String(order._id || ""),
+    });
     return {
       ok: true,
-      message: "No shipment exists for this order.",
+      noAction: true,
+      message: "No Shiprocket reference found. Cancellation skipped on Shiprocket.",
     };
   }
 
-  const normalizedShipmentId = String(order.shiprocketShipmentId).split(",")[0].trim();
+  const isAlreadyShippedError = (statusCode, message) => {
+    const text = String(message || "").toLowerCase();
+    return (
+      statusCode === 409 ||
+      statusCode === 422 ||
+      text.includes("already shipped") ||
+      text.includes("in transit") ||
+      text.includes("out for delivery") ||
+      text.includes("delivered")
+    );
+  };
+
+  const isNoRecordError = (statusCode, message) => {
+    const text = String(message || "").toLowerCase();
+    return statusCode === 404 || text.includes("not found") || text.includes("does not exist") || text.includes("already cancel");
+  };
+
+  const tryShipmentCancel = async () => {
+    if (!normalizedShipmentId) return null;
+    return cancelShipment(Number(normalizedShipmentId) || normalizedShipmentId);
+  };
+
+  const tryOrderCancel = async () => {
+    if (!normalizedOrderId) return null;
+    return cancelOrder(normalizedOrderId);
+  };
+
+  const extractMessage = (response) =>
+    response?.message || response?.status || response?.response?.message || response?.response?.status || "";
+
+  const logSuccess = (stage, message) => {
+    console.info("[shiprocket-cancel] success", {
+      stage,
+      orderId: String(order._id || ""),
+      shipmentId: normalizedShipmentId || null,
+      shiprocketOrderId: normalizedOrderId || null,
+      message,
+    });
+  };
+
+  const logFailure = (stage, message, payload = null) => {
+    console.error("[shiprocket-cancel] failure", {
+      stage,
+      orderId: String(order._id || ""),
+      shipmentId: normalizedShipmentId || null,
+      shiprocketOrderId: normalizedOrderId || null,
+      message,
+      payload,
+    });
+  };
+
   order.shiprocketCancelAttempts = Number(order.shiprocketCancelAttempts || 0) + 1;
   order.shiprocketCancelLastTriedAt = new Date();
 
   try {
-    const shiprocketRes = await cancelShipment(Number(normalizedShipmentId) || normalizedShipmentId);
-    const srMessage =
-      shiprocketRes?.message ||
-      shiprocketRes?.status ||
-      shiprocketRes?.response?.message ||
-      "Shipment cancelled on Shiprocket";
-    order.shiprocketCancelStatus = "success";
-    order.shiprocketCancelError = null;
-    return { ok: true, message: `Shipment cancelled on Shiprocket (${srMessage}).` };
-  } catch (srCancelErr) {
-    const payload = srCancelErr.shiprocket || srCancelErr.response?.data || {
-      message: srCancelErr.message,
-    };
-    const statusCode = Number(payload?.status || payload?.response?.status || srCancelErr?.response?.status || 0);
-    const errMessage = extractShiprocketErrorMessage(payload);
-
-    // Shiprocket can return 404 when shipment is already cancelled/absent.
-    // Treat this as idempotent success so admin UI stays consistent.
-    if (statusCode === 404 || /not found|does not exist|already cancel/i.test(String(errMessage || ""))) {
+    if (normalizedShipmentId) {
+      const shiprocketRes = await tryShipmentCancel();
+      const srMessage = extractMessage(shiprocketRes) || "Shipment cancelled on Shiprocket";
       order.shiprocketCancelStatus = "success";
       order.shiprocketCancelError = null;
+      logSuccess("cancel_shipment", srMessage);
+      return { ok: true, message: `Shipment cancelled on Shiprocket (${srMessage}).`, stage: "cancel_shipment" };
+    }
+
+    if (normalizedOrderId) {
+      const orderCancelRes = await tryOrderCancel();
+      const orderCancelMessage = extractMessage(orderCancelRes) || "Order cancelled on Shiprocket";
+      order.shiprocketCancelStatus = "success";
+      order.shiprocketCancelError = null;
+      logSuccess("cancel_order", orderCancelMessage);
+      return { ok: true, message: `Order cancelled on Shiprocket (${orderCancelMessage}).`, stage: "cancel_order" };
+    }
+
+    order.shiprocketCancelStatus = "not_required";
+    order.shiprocketCancelError = null;
+    return {
+      ok: true,
+      noAction: true,
+      message: "No Shiprocket reference found. Cancellation skipped on Shiprocket.",
+      stage: "none",
+    };
+  } catch (err) {
+    const payload = err.shiprocket || err.response?.data || { message: err.message };
+    const statusCode = Number(payload?.status || payload?.response?.status || err?.response?.status || 0);
+    const errMessage = extractShiprocketErrorMessage(payload);
+
+    if (isAlreadyShippedError(statusCode, errMessage)) {
+      order.shiprocketCancelStatus = "failed";
+      order.shiprocketCancelError = "Order already shipped on Shiprocket. Cancellation prevented.";
+      logFailure("already_shipped", errMessage, payload);
+      return {
+        ok: false,
+        reason: "already_shipped",
+        message: "Order already shipped on Shiprocket. Cancellation prevented.",
+        shiprocketError: payload,
+      };
+    }
+
+    if (isNoRecordError(statusCode, errMessage)) {
+      order.shiprocketCancelStatus = "not_required";
+      order.shiprocketCancelError = null;
+      console.info("[shiprocket-cancel] no-op", {
+        orderId: String(order._id || ""),
+        shipmentId: normalizedShipmentId || null,
+        shiprocketOrderId: normalizedOrderId || null,
+        message: errMessage,
+      });
       return {
         ok: true,
-        message: "Shipment is already cancelled or no longer present on Shiprocket.",
+        noAction: true,
+        message: "No Shiprocket shipment/order exists. Nothing to cancel on Shiprocket.",
+        stage: "no_record",
       };
     }
 
     order.shiprocketCancelStatus = "failed";
     order.shiprocketCancelError = errMessage;
+    logFailure(normalizedShipmentId ? "cancel_shipment" : "cancel_order", errMessage, payload);
     return {
       ok: false,
-      message: `Shipment cancellation failed. Use retry action. Reason: ${errMessage}`,
+      message: `Shiprocket cancellation failed. Use retry action. Reason: ${errMessage}`,
       shiprocketError: payload,
     };
   }
@@ -1472,8 +1561,9 @@ export const updateOrderStatus = async (req, res) => {
 
     if (fields.status) {
       const requestedStatus = String(fields.status || "").toUpperCase();
-      const allowed = ["PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"];
-      if (!allowed.includes(requestedStatus)) {
+      const allowedStatuses = ["PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"];
+
+      if (!allowedStatuses.includes(requestedStatus)) {
         return res.status(400).json({ message: "Invalid status" });
       }
 
@@ -1518,42 +1608,38 @@ export const updateOrderStatus = async (req, res) => {
         });
       }
 
-      order.status = requestedStatus;
-      order.orderStatus = requestedStatus;
+      if (requestedStatus === "CANCELLED" && previousStatus !== "CANCELLED") {
+        const shiprocketCancelResult = await attemptShiprocketCancellation(order);
 
-      const shouldEnsureShipment = requestedStatus === "DISPATCHED";
-      if (shouldEnsureShipment && !order.shiprocketShipmentId) {
-        try {
-          const orderWithUser = await Order.findById(order._id).populate("user", "name email phone");
-          const forShiprocket = mapOrderToShiprocketPayload(orderWithUser);
-          const srRes = await createShiprocketOrder(forShiprocket);
-          const shipmentId = getShipmentIdFromShiprocketResponse(srRes);
-          if (shipmentId) {
-            order.shiprocketShipmentId = String(shipmentId);
-          } else {
-            awbError = {
-              status: 400,
-              message: explainShiprocketShipmentIssue(srRes),
-              response: srRes,
-            };
-          }
-        } catch (srErr) {
-          const payload = srErr.shiprocket || srErr.response?.data || {
-            message: srErr.message,
-            status: srErr.response?.status,
-          };
-          if (isShiprocketAccessError(payload)) {
-            awbError = payload;
-          } else {
-            return res.status(400).json({
-              message: extractShiprocketErrorMessage(payload),
-              shiprocketError: payload,
+        if (!shiprocketCancelResult?.ok) {
+          if (shiprocketCancelResult?.reason === "already_shipped") {
+            return res.status(409).json({
+              message:
+                shiprocketCancelResult.message ||
+                "Order already shipped on Shiprocket. Cancellation prevented.",
+              code: "SHIPROCKET_ALREADY_SHIPPED",
+              shiprocketError: shiprocketCancelResult.shiprocketError || null,
             });
           }
-        }
-      }
 
-      if (requestedStatus === "CANCELLED" && previousStatus !== "CANCELLED") {
+          return res.status(502).json({
+            message: shiprocketCancelResult?.message || "Shiprocket cancellation failed",
+            code: "SHIPROCKET_CANCELLATION_FAILED",
+            shiprocketError: shiprocketCancelResult?.shiprocketError || null,
+          });
+        }
+
+        if (shiprocketCancelResult?.message) {
+          warnings.push(shiprocketCancelResult.message);
+        }
+
+        if (shiprocketCancelResult?.noAction) {
+          warnings.push("No Shiprocket reference found. No Shiprocket cancellation action was required.");
+        }
+
+        order.status = requestedStatus;
+        order.orderStatus = requestedStatus;
+
         if (!order.stockRestoredOnCancel) {
           for (const item of order.items || []) {
             const productId = item?.product?._id || item?.product;
@@ -1566,16 +1652,10 @@ export const updateOrderStatus = async (req, res) => {
           order.stockRestoredOnCancel = true;
         }
 
-        const shiprocketCancelResult = await attemptShiprocketCancellation(order);
-        if (shiprocketCancelResult.message) {
-          warnings.push(shiprocketCancelResult.message);
-        }
-
         const paidAmount = inferPaidAmount(order);
         if (paidAmount > 0) {
           order.paymentStatus = order.refundProcessed ? "refunded" : "refund_pending";
-          
-          // Set refund timeline for paid orders
+
           if (!order.refundProcessed && order.paymentStatus === "refund_pending") {
             order.refundStatus = "pending";
             order.refundRequestedAt = new Date();
@@ -1587,48 +1667,91 @@ export const updateOrderStatus = async (req, res) => {
         }
 
         order.refundError = null;
-      }
+      } else {
+        order.status = requestedStatus;
+        order.orderStatus = requestedStatus;
 
-      const hasAwb = Boolean(String(order.shiprocketAwb || "").trim());
-      if (requestedStatus === "DISPATCHED" && order.shiprocketShipmentId && !hasAwb) {
-        try {
-          const normalizedShipmentId = String(order.shiprocketShipmentId).split(",")[0].trim();
-          let awbRes = await generateAWB(normalizedShipmentId);
-          if (Array.isArray(awbRes) && awbRes.length) awbRes = awbRes[0];
+        const shouldEnsureShipment = requestedStatus === "DISPATCHED";
+        if (shouldEnsureShipment && !order.shiprocketShipmentId) {
+          try {
+            const orderWithUser = await Order.findById(order._id).populate("user", "name email phone");
+            const forShiprocket = mapOrderToShiprocketPayload(orderWithUser);
+            const srRes = await createShiprocketOrder(forShiprocket);
+            const shipmentId = getShipmentIdFromShiprocketResponse(srRes);
 
-          const awbCode = readAwbFromKnownKeys(awbRes);
-          if (awbCode) {
-            order.shiprocketAwb = String(awbCode);
-            order.trackingUrl =
-              awbRes?.tracking_url ??
-              awbRes?.tracking ??
-              awbRes?.data?.tracking_url ??
-              awbRes?.response?.tracking_url ??
-              awbRes?.response?.data?.tracking_url ??
-              awbRes?.tracking_url_short ??
-              `https://shiprocket.co/tracking/${encodeURIComponent(awbCode)}`;
-
-            try {
-              const labelRes = await generateLabel(normalizedShipmentId);
-              if (labelRes?.label_url) order.shiprocketLabelUrl = labelRes.label_url;
-            } catch {
+            if (shipmentId) {
+              order.shiprocketShipmentId = String(shipmentId);
+            } else {
+              awbError = {
+                status: 400,
+                message: explainShiprocketShipmentIssue(srRes),
+                response: srRes,
+              };
             }
-            try {
-              await generateManifest(normalizedShipmentId);
-            } catch {
-            }
-            try {
-              await schedulePickup(normalizedShipmentId);
-            } catch {
-            }
-          } else {
-            awbError = {
-              message: "Shiprocket did not return a valid AWB code for this shipment.",
-              response: awbRes,
+          } catch (srErr) {
+            const payload = srErr.shiprocket || srErr.response?.data || {
+              message: srErr.message,
+              status: srErr.response?.status,
             };
+
+            if (isShiprocketAccessError(payload)) {
+              awbError = payload;
+            } else {
+              return res.status(400).json({
+                message: extractShiprocketErrorMessage(payload),
+                shiprocketError: payload,
+              });
+            }
           }
-        } catch (awbErr) {
-          awbError = awbErr.shiprocket || awbErr.message || String(awbErr);
+        }
+
+        const hasAwb = Boolean(String(order.shiprocketAwb || "").trim());
+        if (requestedStatus === "DISPATCHED" && order.shiprocketShipmentId && !hasAwb) {
+          try {
+            const normalizedShipmentId = String(order.shiprocketShipmentId).split(",")[0].trim();
+            let awbRes = await generateAWB(normalizedShipmentId);
+            if (Array.isArray(awbRes) && awbRes.length) {
+              awbRes = awbRes[0];
+            }
+
+            const awbCode = readAwbFromKnownKeys(awbRes);
+            if (awbCode) {
+              order.shiprocketAwb = String(awbCode);
+              order.trackingUrl =
+                awbRes?.tracking_url ??
+                awbRes?.tracking ??
+                awbRes?.data?.tracking_url ??
+                awbRes?.response?.tracking_url ??
+                awbRes?.response?.data?.tracking_url ??
+                awbRes?.tracking_url_short ??
+                `https://shiprocket.co/tracking/${encodeURIComponent(awbCode)}`;
+
+              try {
+                const labelRes = await generateLabel(normalizedShipmentId);
+                if (labelRes?.label_url) {
+                  order.shiprocketLabelUrl = labelRes.label_url;
+                }
+              } catch {
+              }
+
+              try {
+                await generateManifest(normalizedShipmentId);
+              } catch {
+              }
+
+              try {
+                await schedulePickup(normalizedShipmentId);
+              } catch {
+              }
+            } else {
+              awbError = {
+                message: "Shiprocket did not return a valid AWB code for this shipment.",
+                response: awbRes,
+              };
+            }
+          } catch (awbErr) {
+            awbError = awbErr.shiprocket || awbErr.message || String(awbErr);
+          }
         }
       }
     }
@@ -1651,6 +1774,7 @@ export const updateOrderStatus = async (req, res) => {
       json.awbError = awbError;
       const msg = typeof awbError === "object" && (awbError?.response?.message || awbError?.message || "");
       const code = typeof awbError === "object" && Number(awbError?.status || awbError?.response?.status || 0);
+
       if (msg && /kyc|verification|complete your kyc/i.test(msg)) {
         json.awbMessage = "Complete KYC on Shiprocket to generate AWB. Log in to Shiprocket dashboard and retry DISPATCHED.";
       } else if (
