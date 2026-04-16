@@ -35,6 +35,14 @@ const formatDateTime = (d) => {
     });
 };
 
+const shiprocketCancelBadge = (status) => {
+    const normalized = String(status || "not_required").toLowerCase();
+    if (normalized === "success") return { label: "Cancelled on Shiprocket", className: "bg-green-100 text-green-800" };
+    if (normalized === "pending") return { label: "Cancellation Pending", className: "bg-amber-100 text-amber-800" };
+    if (normalized === "failed") return { label: "Cancellation Failed", className: "bg-red-100 text-red-800" };
+    return { label: "Not Required", className: "bg-gray-100 text-gray-700" };
+};
+
 /* ---------------- DEFAULT ORDER ---------------- */
 
 const DEFAULT_ORDER = {
@@ -267,6 +275,8 @@ const OrderDetail = () => {
 
     const address = order.address || {};
     const normalizedPaymentStatus = String(order.paymentStatus || "unpaid").toLowerCase();
+    const shiprocketCancelStatus = String(order.shiprocketCancelStatus || "not_required").toLowerCase();
+    const shiprocketCancelInfo = shiprocketCancelBadge(shiprocketCancelStatus);
     const canProcessRefund =
         String(order.status || "").toUpperCase() === "CANCELLED" &&
         ["refund_pending", "paid"].includes(normalizedPaymentStatus);
@@ -342,6 +352,21 @@ const OrderDetail = () => {
                 <Card title="Shipping / Shiprocket">
                     <Info label="Shipment ID (internal)" value={order.shiprocketShipmentId || "—"} />
                     <Info label="Tracking Number (AWB)" value={order.shiprocketAwb || "—"} />
+                    <div className="mt-3">
+                        <Info label="Shiprocket Cancel Status" value={shiprocketCancelInfo.label} />
+                        {shiprocketCancelStatus === "failed" && order.shiprocketCancelError ? (
+                            <p className="mt-1 text-xs text-red-600 wrap-break-word">{order.shiprocketCancelError}</p>
+                        ) : null}
+                        {order.shiprocketCancelAttempts ? (
+                            <p className="mt-1 text-xs text-gray-500">
+                                Attempts: {order.shiprocketCancelAttempts}
+                                {order.shiprocketCancelLastTriedAt ? ` · Last tried ${formatDateTime(order.shiprocketCancelLastTriedAt)}` : ""}
+                            </p>
+                        ) : null}
+                        <span className={`mt-2 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${shiprocketCancelInfo.className}`}>
+                            {shiprocketCancelInfo.label}
+                        </span>
+                    </div>
                     {order.shiprocketAwb && order.trackingUrl ? (
                         <a
                             href={order.trackingUrl}

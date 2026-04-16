@@ -36,43 +36,40 @@ const normalizeShiprocketCancelMeta = (status, error) => {
 
   if (normalizedStatus === "failed" && isNotFound) {
     return {
-      shiprocketCancelStatus: "success",
-      shiprocketCancelError: null,
-    };
-  }
-
-  return {
-    shiprocketCancelStatus: normalizedStatus,
-    shiprocketCancelError: error || null,
-  };
-};
-
-// ============ ADMIN (no auth - admin may use separate session) ============
-
-/**
- * GET /api/payment/orders
- * Returns all orders for admin dashboard
- */
-router.get("/orders", async (req, res) => {
-  try {
-    const orders = await Order.find()
-      .populate("user", "name email phone")
-      .populate({ path: "items.product", populate: { path: "category", select: "name" } })
-      .sort({ createdAt: -1 });
-
-    // Do not show unpaid online checkout attempts on admin dashboard.
-    const visibleOrders = orders.filter((o) => {
-      const status = String(o.status || "").toUpperCase();
-      const paymentMethod = String(o.paymentMethod || "").toUpperCase();
-      const razorpayAmount = Number(o.razorpayAmount || 0);
-      const paymentRef = String(o.razorpayPaymentId || "").trim();
-
-      const isUnpaidOnlineCheckout =
-        paymentMethod === "ONLINE" &&
-        String(o.paymentStatus || "unpaid").toLowerCase() === "unpaid" &&
-        razorpayAmount > 0 &&
-        !paymentRef;
-
+      return {
+        _id: o._id,
+        orderDate: o.createdAt,
+        totalAmt: o.payableAmount ?? o.totalAmount ?? 0,
+        cartItems: (o.items || []).map((it) => ({
+          name: it.productName || (it.product?.productName) || "",
+          quantity: it.quantity || 1,
+          price: it.price || it.mrp || 0,
+          productId: {
+            subCategory: [
+              {
+                name:
+                  (typeof it.product?.category === "object" && it.product?.category?.name) ||
+                  "General",
+              },
+            ],
+            name: it.productName || (it.product?.productName) || "",
+          },
+        })),
+        user: o.user,
+        status: normalizeOrderStatus(o.status),
+        paymentStatus: o.paymentStatus || "unpaid",
+        paymentMethod: o.paymentMethod,
+        refundId: o.refundId || o.razorpayRefundId || null,
+        refundTime: o.refundAt || null,
+        shiprocketShipmentId: o.shiprocketShipmentId || null,
+        shiprocketAwb: o.shiprocketAwb || null,
+        shiprocketLabelUrl: o.shiprocketLabelUrl || null,
+        shiprocketCancelStatus: shiprocketCancel.shiprocketCancelStatus,
+        shiprocketCancelError: shiprocketCancel.shiprocketCancelError,
+        shiprocketCancelAttempts: o.shiprocketCancelAttempts || 0,
+        shiprocketCancelLastTriedAt: o.shiprocketCancelLastTriedAt || null,
+        trackingUrl: toTrackingUrl(o.shiprocketAwb, o.trackingUrl),
+      };
       return !isUnpaidOnlineCheckout;
     });
 
@@ -113,6 +110,10 @@ router.get("/orders", async (req, res) => {
       shiprocketLabelUrl: o.shiprocketLabelUrl || null,
       shiprocketCancelStatus: shiprocketCancel.shiprocketCancelStatus,
       shiprocketCancelError: shiprocketCancel.shiprocketCancelError,
+      shiprocketCancelAttempts: o.shiprocketCancelAttempts || 0,
+      shiprocketCancelLastTriedAt: o.shiprocketCancelLastTriedAt || null,
+      shiprocketCancelStatus: shiprocketCancel.shiprocketCancelStatus,
+      shiprocketCancelError: shiprocketCancel.shiprocketCancelError,
       trackingUrl: toTrackingUrl(o.shiprocketAwb, o.trackingUrl),
     });
     });
@@ -130,6 +131,8 @@ router.get("/orders", async (req, res) => {
 router.get("/orders/:orderId", async (req, res) => {
   try {
     const { orderId } = req.params;
+      shiprocketCancelAttempts: order.shiprocketCancelAttempts || 0,
+      shiprocketCancelLastTriedAt: order.shiprocketCancelLastTriedAt || null,
 
     const order = await Order.findById(orderId)
       .populate("user", "name email phone")
@@ -174,6 +177,10 @@ router.get("/orders/:orderId", async (req, res) => {
       shiprocketShipmentId: order.shiprocketShipmentId || null,
       shiprocketAwb: order.shiprocketAwb || null,
       shiprocketLabelUrl: order.shiprocketLabelUrl || null,
+      shiprocketCancelStatus: shiprocketCancel.shiprocketCancelStatus,
+      shiprocketCancelError: shiprocketCancel.shiprocketCancelError,
+      shiprocketCancelAttempts: order.shiprocketCancelAttempts || 0,
+      shiprocketCancelLastTriedAt: order.shiprocketCancelLastTriedAt || null,
       shiprocketCancelStatus: shiprocketCancel.shiprocketCancelStatus,
       shiprocketCancelError: shiprocketCancel.shiprocketCancelError,
       refundId: order.refundId || order.razorpayRefundId || null,
