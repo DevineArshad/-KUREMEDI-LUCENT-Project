@@ -929,7 +929,7 @@ function RazorpayModal({ paymentModal, onSuccess, onPaid, onClose }) {
       currency: "INR",
       order_id: paymentModal.razorpayOrderId,
       redirect: false,
-      name: "Lucent Biotech Pharmacy",
+      name: "Lucent Biotech Ltd",
       description: "Order payment",
       prefill: {
         method: "upi",

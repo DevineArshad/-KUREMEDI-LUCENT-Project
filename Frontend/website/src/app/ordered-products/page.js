@@ -283,7 +283,6 @@ export default function OrderedProductsPage() {
                                                         ];
                                                         
                                                         const statusMap = {
-                                                            "PENDING": 0,
                                                             "PLACED": 0,
                                                             "CONFIRMED": 1,
                                                             "DISPATCHED": 2,

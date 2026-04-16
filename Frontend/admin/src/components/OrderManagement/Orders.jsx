@@ -7,7 +7,6 @@ import toast from "react-hot-toast";
 
 const TABS = [
   { key: "all", label: "All Orders" },
-  { key: "PENDING", label: "Pending" },
   { key: "processing", label: "Processing" },
   { key: "DISPATCHED", label: "Shipped" },
   { key: "DELIVERED", label: "Delivered" },
@@ -15,7 +14,6 @@ const TABS = [
 ];
 
 const STATUS_OPTIONS = [
-  "PENDING",
   "PLACED",
   "CONFIRMED",
   "DISPATCHED",
@@ -105,8 +103,6 @@ const Orders = () => {
 
   const tabCounts = {
     all: orders.length,
-    PENDING: orders.filter((o) => (o.status || "").toUpperCase() === "PENDING")
-      .length,
     processing: stats.processing,
     DISPATCHED: stats.shipped,
     DELIVERED: orders.filter((o) =>
@@ -264,7 +260,7 @@ const Orders = () => {
                     .slice(0, 2)
                     .map((i) => i.name || i.productId?.name || "Item")
                     .join(", ") || "-";
-                const status = (order.status || "PENDING").toUpperCase();
+                const status = (order.status || "PLACED").toUpperCase();
                 const isUpdating = updatingId === order._id;
 
                 return (

@@ -119,7 +119,7 @@ const orderSchema = new mongoose.Schema(
     },
     orderStatus: {
       type: String,
-      enum: ["PENDING", "PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"],
+      enum: ["PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"],
       default: "PLACED",
     },
     user: {
@@ -153,7 +153,7 @@ const orderSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["PENDING", "PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"],
+      enum: ["PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"],
       default: "PLACED",
     },
     paymentStatus: {
@@ -232,6 +232,14 @@ orderSchema.pre("save", async function () {
   if (String(this.orderStatus || "").toUpperCase() === "REFUNDED") {
     this.orderStatus = "CANCELLED";
     this.paymentStatus = "refunded";
+  }
+
+  // Backward compatibility for historical records that used PENDING.
+  if (String(this.status || "").toUpperCase() === "PENDING") {
+    this.status = "PLACED";
+  }
+  if (String(this.orderStatus || "").toUpperCase() === "PENDING") {
+    this.orderStatus = "PLACED";
   }
 
   if (!(Number(this.totalWeight) > 0)) {

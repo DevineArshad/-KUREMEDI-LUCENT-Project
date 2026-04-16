@@ -5,9 +5,10 @@
  *    POST /api/orders (placeOrder) → creates order, reduces stock, clears cart
  *
  * 2. ONLINE PAYMENT (Razorpay):
- *    a) POST /api/payment/create-order → creates order (PENDING), returns Razorpay orderId
+ *    a) POST /api/payment/create-order → creates unpaid order (PLACED), returns Razorpay orderId
  *    b) Client opens Razorpay checkout, user pays
- *    c) POST /api/payment/verify-payment → verifies signature, updates to PLACED, reduces stock, clears cart
+ *    c) POST /api/payment/verify-payment → verifies signature, marks payment paid, keeps status PLACED
+ *    d) Admin moves PLACED -> CONFIRMED -> DISPATCHED (Shiprocket charge starts here) -> DELIVERED
  *
  * 3. ADMIN:
  *    GET /api/payment/orders → list all orders

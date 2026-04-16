@@ -108,26 +108,18 @@ async function fetchRazorpayOrderPayments({ keyId, keySecret, orderId }) {
 }
 
 async function finalizePaidOrder({ order, userId, paymentId }) {
-  if (!order || order.status !== "PENDING") return order;
+  if (!order) return order;
+
+  const alreadyCaptured =
+    String(order.paymentStatus || "").toLowerCase() === "paid" ||
+    Boolean(String(order.razorpayPaymentId || "").trim());
+  if (alreadyCaptured) return order;
 
   order.status = "PLACED";
   order.orderStatus = "PLACED";
   order.paymentStatus = "paid";
   order.razorpayPaymentId = paymentId;
   await order.save();
-
-  try {
-    const orderWithUser = await Order.findById(order._id).populate("user", "name email phone");
-    const forShiprocket = mapOrderToShiprocketPayload(orderWithUser);
-    const srRes = await createShiprocketOrder(forShiprocket);
-    const shipmentId =
-      srRes?.shipment_id ?? srRes?.shipments?.[0]?.id ?? srRes?.shipments?.[0]?.shipment_id;
-    if (shipmentId) {
-      order.shiprocketShipmentId = String(shipmentId);
-      await order.save();
-    }
-  } catch (srErr) {
-  }
 
   const walletAmount = order.walletAmount ?? 0;
   if (walletAmount > 0) {
@@ -290,7 +282,11 @@ export const handleRazorpayWebhook = async (req, res) => {
       });
     }
 
-    if (order.status !== "PENDING") {
+    const alreadyCaptured =
+      String(order.paymentStatus || "").toLowerCase() === "paid" ||
+      Boolean(String(order.razorpayPaymentId || "").trim());
+
+    if (alreadyCaptured) {
       if (order.razorpayPaymentId === razorpayPaymentId) {
         return res.status(200).json({ received: true, processed: true, idempotent: true });
       }
@@ -581,23 +577,25 @@ export const createPaymentOrder = async (req, res) => {
 
     const user = await User.findById(req.user._id);
 
-    // Reuse a very recent pending Razorpay order to avoid duplicate order creation
+    // Reuse a very recent unpaid Razorpay order to avoid duplicate order creation
     // when users tap "Place Order" repeatedly.
     if (razorpayAmountRupee > 0) {
       const recentThreshold = new Date(Date.now() - 15 * 60 * 1000);
       const recentPendingOrder = await Order.findOne({
         user: req.user._id,
-        status: "PENDING",
+        status: "PLACED",
+        paymentStatus: "unpaid",
         paymentMethod: "ONLINE",
         createdAt: { $gte: recentThreshold },
         razorpayAmount: razorpayAmountRupee,
         walletAmount,
         razorpayOrderId: { $exists: true, $ne: null },
+        $or: [{ razorpayPaymentId: { $exists: false } }, { razorpayPaymentId: null }, { razorpayPaymentId: "" }],
       }).sort({ createdAt: -1 });
 
       if (recentPendingOrder) {
         return res.status(200).json({
-          message: "Resume pending payment",
+          message: "Resume unpaid payment",
           orderId: recentPendingOrder._id,
           razorpayOrderId: recentPendingOrder.razorpayOrderId,
           amount: recentPendingOrder.razorpayAmount,
@@ -626,8 +624,8 @@ export const createPaymentOrder = async (req, res) => {
       totalWeight,
       walletAmount,
       razorpayAmount: razorpayAmountRupee,
-      status: walletAmount >= payableAmountRupee ? "PLACED" : "PENDING",
-      orderStatus: walletAmount >= payableAmountRupee ? "PLACED" : "PENDING",
+      status: "PLACED",
+      orderStatus: "PLACED",
       paymentStatus: walletAmount >= payableAmountRupee ? "paid" : "unpaid",
       paymentMethod: "ONLINE",
       shippingAddress: normalizedShippingAddress,
@@ -657,20 +655,6 @@ export const createPaymentOrder = async (req, res) => {
       }
       cart.items = [];
       await cart.save();
-
-      // Create Shiprocket order on payment success (wallet-only)
-      try {
-        const orderWithUser = await Order.findById(order._id).populate("user", "name email phone");
-        const forShiprocket = mapOrderToShiprocketPayload(orderWithUser);
-        const srRes = await createShiprocketOrder(forShiprocket);
-        const shipmentId =
-          srRes?.shipment_id ?? srRes?.shipments?.[0]?.id ?? srRes?.shipments?.[0]?.shipment_id;
-        if (shipmentId) {
-          order.shiprocketShipmentId = String(shipmentId);
-          await order.save();
-        }
-      } catch (srErr) {
-      }
 
       return res.status(201).json({
         message: "Order placed successfully (Wallet)",
@@ -811,7 +795,11 @@ export const verifyPayment = async (req, res) => {
       });
     }
 
-    if (order.status !== "PENDING") {
+    const alreadyCaptured =
+      String(order.paymentStatus || "").toLowerCase() === "paid" ||
+      Boolean(String(order.razorpayPaymentId || "").trim());
+
+    if (alreadyCaptured) {
       if (order.razorpayPaymentId && order.razorpayPaymentId === razorpayPaymentId) {
         return res.status(200).json({
           message: "Payment already verified",
@@ -1277,6 +1265,16 @@ export const generateOrderAwb = async (req, res) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
+    const normalizedStatus = String(order.status || "").toUpperCase() === "PENDING"
+      ? "PLACED"
+      : String(order.status || "").toUpperCase();
+    if (!["DISPATCHED", "DELIVERED"].includes(normalizedStatus)) {
+      return res.status(409).json({
+        message: "AWB can only be generated after order is dispatched",
+        code: "INVALID_AWB_SEQUENCE",
+      });
+    }
+
     const payloadIssues = validateShiprocketPayload(order);
     if (payloadIssues.length > 0) {
       return res.status(400).json({
@@ -1469,11 +1467,12 @@ export const updateOrderStatus = async (req, res) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    const previousStatus = String(order.status || "").toUpperCase();
+    const rawPreviousStatus = String(order.status || "").toUpperCase();
+    const previousStatus = rawPreviousStatus === "PENDING" ? "PLACED" : rawPreviousStatus;
 
     if (fields.status) {
       const requestedStatus = String(fields.status || "").toUpperCase();
-      const allowed = ["PENDING", "PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"];
+      const allowed = ["PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"];
       if (!allowed.includes(requestedStatus)) {
         return res.status(400).json({ message: "Invalid status" });
       }
@@ -1483,17 +1482,28 @@ export const updateOrderStatus = async (req, res) => {
       const hasCapturedGatewayPayment = Boolean(String(order.razorpayPaymentId || "").trim());
 
       if (
-        previousStatus === "PENDING" &&
         orderPaymentMethod === "ONLINE" &&
         hasGatewayAmount &&
         !hasCapturedGatewayPayment &&
-        ["PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED"].includes(requestedStatus)
+        ["CONFIRMED", "DISPATCHED", "DELIVERED"].includes(requestedStatus)
       ) {
         return res.status(400).json({
           message:
-            "Cannot mark this order as placed/processed before payment capture. Complete Razorpay payment first or cancel the order.",
+            "Cannot move this order forward before payment capture. Complete Razorpay payment first or cancel the order.",
           code: "UNPAID_ONLINE_ORDER",
         });
+      }
+
+      if (requestedStatus === "CONFIRMED" && !["PLACED", "CONFIRMED"].includes(previousStatus)) {
+        return res.status(409).json({ message: "Only placed orders can be confirmed" });
+      }
+
+      if (requestedStatus === "DISPATCHED" && !["CONFIRMED", "DISPATCHED"].includes(previousStatus)) {
+        return res.status(409).json({ message: "Only confirmed orders can be dispatched" });
+      }
+
+      if (requestedStatus === "DELIVERED" && !["DISPATCHED", "DELIVERED"].includes(previousStatus)) {
+        return res.status(409).json({ message: "Only dispatched orders can be delivered" });
       }
 
       if (

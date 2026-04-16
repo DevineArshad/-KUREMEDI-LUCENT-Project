@@ -22,10 +22,11 @@ const STATUS_STEPS = [
   { key: "DELIVERED", label: "Delivered", icon: "checkmark-circle" as const },
 ];
 
-const STATUS_ORDER = ["PENDING", "PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"];
+const STATUS_ORDER = ["PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"];
 
 function getStepIndex(status: string): number {
-  const s = (status || "PLACED").toUpperCase();
+  const raw = (status || "PLACED").toUpperCase();
+  const s = raw === "PENDING" ? "PLACED" : raw;
   if (s === "CANCELLED") return -1;
   const i = STATUS_ORDER.indexOf(s);
   return i < 0 ? 0 : i;

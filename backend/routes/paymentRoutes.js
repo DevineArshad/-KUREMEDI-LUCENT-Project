@@ -67,13 +67,13 @@ router.get("/orders", async (req, res) => {
       const razorpayAmount = Number(o.razorpayAmount || 0);
       const paymentRef = String(o.razorpayPaymentId || "").trim();
 
-      const isUnpaidOnlinePending =
+      const isUnpaidOnlineCheckout =
         paymentMethod === "ONLINE" &&
-        status === "PENDING" &&
+        String(o.paymentStatus || "unpaid").toLowerCase() === "unpaid" &&
         razorpayAmount > 0 &&
         !paymentRef;
 
-      return !isUnpaidOnlinePending;
+      return !isUnpaidOnlineCheckout;
     });
 
     const mapped = visibleOrders.map((o) => {
@@ -207,7 +207,7 @@ router.post("/webhook", handleRazorpayWebhook);
 
 /**
  * POST /api/payment/create-order
- * Checkout: Create order in PENDING, return Razorpay order for payment
+ * Checkout: Create unpaid order in PLACED, return Razorpay order for payment
  * Body: { shippingAddress?, notes? }
  */
 router.post("/create-order", protect, requireKycApproved, createPaymentOrder);

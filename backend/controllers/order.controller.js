@@ -42,8 +42,12 @@ const toTrackingUrl = (awb, trackingUrl) => {
 
 const normalizeOrderStatus = (status) => {
   const normalized = String(status || "").toUpperCase();
-  return normalized === "REFUNDED" ? "CANCELLED" : normalized;
+  if (normalized === "REFUNDED") return "CANCELLED";
+  if (normalized === "PENDING") return "PLACED";
+  return normalized;
 };
+
+const ORDER_STATUS_ALLOWED = ["PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"];
 
 const syncShiprocketFields = (order, { shipmentId, awbCode, courierName, trackingUrl, status }) => {
   const normalizedStatus = normalizeShiprocketStatus(status);
@@ -363,16 +367,64 @@ export const getOrderTracking = async (req, res) => {
  */
 export const updateOrderStatus = async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, forceCancel = false } = req.body;
 
     const normalized = String(status || "").toUpperCase();
-    const allowed = ["PENDING", "PLACED", "CONFIRMED", "DISPATCHED", "DELIVERED", "CANCELLED"];
-    if (!allowed.includes(normalized)) {
+    if (!ORDER_STATUS_ALLOWED.includes(normalized)) {
       return res.status(400).json({ message: "Invalid status" });
     }
 
     const order = await Order.findById(req.params.orderId);
     if (!order) return res.status(404).json({ message: "Order not found" });
+
+    const previousStatus = normalizeOrderStatus(order.status);
+    const orderPaymentMethod = String(order.paymentMethod || "").toUpperCase();
+    const hasGatewayAmount = Number(order.razorpayAmount || 0) > 0;
+    const hasCapturedGatewayPayment = Boolean(String(order.razorpayPaymentId || "").trim());
+
+    if (
+      orderPaymentMethod === "ONLINE" &&
+      hasGatewayAmount &&
+      !hasCapturedGatewayPayment &&
+      ["CONFIRMED", "DISPATCHED", "DELIVERED"].includes(normalized)
+    ) {
+      return res.status(400).json({
+        message:
+          "Cannot move order forward before payment capture. Complete Razorpay payment first or cancel the order.",
+        code: "UNPAID_ONLINE_ORDER",
+      });
+    }
+
+    if (normalized === "CONFIRMED" && !["PLACED", "CONFIRMED"].includes(previousStatus)) {
+      return res.status(409).json({ message: "Only placed orders can be confirmed" });
+    }
+
+    if (normalized === "DISPATCHED" && !["CONFIRMED", "DISPATCHED"].includes(previousStatus)) {
+      return res.status(409).json({ message: "Only confirmed orders can be dispatched" });
+    }
+
+    if (normalized === "DISPATCHED") {
+      return res.status(400).json({
+        message: "Use dispatch API to mark DISPATCHED so Shiprocket is charged and AWB is generated",
+        code: "USE_DISPATCH_ENDPOINT",
+      });
+    }
+
+    if (normalized === "DELIVERED" && !["DISPATCHED", "DELIVERED"].includes(previousStatus)) {
+      return res.status(409).json({ message: "Only dispatched orders can be delivered" });
+    }
+
+    if (
+      normalized === "CANCELLED" &&
+      ["DISPATCHED", "DELIVERED"].includes(previousStatus) &&
+      !forceCancel
+    ) {
+      return res.status(409).json({
+        message:
+          "This order is already dispatched/delivered. Confirm cancellation by retrying with forceCancel=true.",
+        code: "CANCEL_REQUIRES_CONFIRMATION",
+      });
+    }
 
     order.status = normalized;
     order.orderStatus = normalized;
@@ -406,6 +458,14 @@ export const dispatchOrder = async (req, res) => {
     const order = await Order.findById(targetOrderId).populate("user", "name email phone");
     if (!order) {
       return res.status(404).json({ message: "Order not found" });
+    }
+
+    const currentStatus = normalizeOrderStatus(order.status);
+    if (!["CONFIRMED", "DISPATCHED"].includes(currentStatus)) {
+      return res.status(409).json({
+        message: "Order must be confirmed before dispatch",
+        code: "INVALID_DISPATCH_SEQUENCE",
+      });
     }
 
     if (!force && order.shiprocketShipmentId && order.shiprocketAwb) {

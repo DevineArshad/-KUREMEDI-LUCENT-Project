@@ -6,7 +6,6 @@ import toast from "react-hot-toast";
 import { useContextApi } from "../../hooks/useContextApi";
 
 const STATUS_OPTIONS = [
-    "PENDING",
     "PLACED",
     "CONFIRMED",
     "DISPATCHED",
@@ -40,7 +39,7 @@ const formatDateTime = (d) => {
 
 const DEFAULT_ORDER = {
     _id: "",
-    status: "PENDING",
+    status: "PLACED",
     createdAt: "",
     paymentMethod: "",
     totalAmt: 0,
@@ -299,7 +298,7 @@ const OrderDetail = () => {
                 </div>
 
                 <select
-                    value={(order.status || "PENDING").toUpperCase()}
+                    value={(order.status || "PLACED").toUpperCase()}
                     onChange={(e) => handleStatusChange(e.target.value)}
                     disabled={updating}
                     className="border rounded-lg px-3 py-2 text-sm bg-white"
@@ -335,7 +334,7 @@ const OrderDetail = () => {
                         }
                     />
                     <Info label="Total Amount" value={`₹${order.totalAmt}`} />
-                    <Info label="Status" value={(order.status || "PENDING").toUpperCase()} />
+                    <Info label="Status" value={(order.status || "PLACED").toUpperCase()} />
                     {order.refundId ? <Info label="Refund ID" value={order.refundId} /> : null}
                     {order.refundTime ? <Info label="Refund Time" value={formatDateTime(order.refundTime)} /> : null}
                 </Card>
