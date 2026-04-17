@@ -331,7 +331,11 @@ const Orders = () => {
                       </span>
                     </td>
                     <td className="p-3 text-xs text-gray-600 font-mono">
-                      {order.shiprocketShipmentId ? (
+                      {order.shiprocketBalanceWarning ? (
+                        <div className="bg-red-50 border border-red-200 rounded p-2">
+                          <p className="text-red-700 text-xs font-medium">{order.shiprocketBalanceWarning}</p>
+                        </div>
+                      ) : order.shiprocketShipmentId ? (
                         <span title={`AWB: ${order.shiprocketAwb || "—"}`}>
                           ID: {String(order.shiprocketShipmentId).slice(0, 8)}
                           {order.shiprocketAwb ? ` · ${order.shiprocketAwb}` : ""}

@@ -1879,7 +1879,10 @@ export const updateOrderStatus = async (req, res) => {
       const msg = typeof awbError === "object" && (awbError?.response?.message || awbError?.message || "");
       const code = typeof awbError === "object" && Number(awbError?.status || awbError?.response?.status || 0);
 
-      if (msg && /kyc|verification|complete your kyc/i.test(msg)) {
+      if (msg && /insufficient balance|minimum required balance|wallet|recharge/i.test(msg)) {
+        order.shiprocketBalanceWarning = "Please recharge your ShipRocket wallet. The minimum required balance is Rs 100";
+        json.awbMessage = "Please recharge your ShipRocket wallet. The minimum required balance is Rs 100";
+      } else if (msg && /kyc|verification|complete your kyc/i.test(msg)) {
         json.awbMessage = "Complete KYC on Shiprocket to generate AWB. Log in to Shiprocket dashboard and retry DISPATCHED.";
       } else if (
         code === 401 ||

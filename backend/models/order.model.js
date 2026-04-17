@@ -196,6 +196,7 @@ const orderSchema = new mongoose.Schema(
     shiprocketCancelError: { type: String, default: null },
     shiprocketCancelAttempts: { type: Number, default: 0 },
     shiprocketCancelLastTriedAt: { type: Date, default: null },
+    shiprocketBalanceWarning: { type: String, default: null },
     stockRestoredOnCancel: { type: Boolean, default: false },
     refundInProgress: { type: Boolean, default: false },
     refundError: { type: String, default: null },
