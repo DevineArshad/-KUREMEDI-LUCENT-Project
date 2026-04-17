@@ -549,15 +549,19 @@ export const ContextProvider = ({ children }) => {
     const root = base.includes("/api") ? base.replace(/\/api$/, "") : base;
     const candidates = base.includes("/api")
       ? [
+          `${base}/payment/shiprocket/balance`,
           `${base}/payment/shiprocket/wallet-balance`,
           `${base}/payment/shiprocket/wallet`,
           `${base}/payment/wallet-balance`,
+          `${root}/api/payment/shiprocket/balance`,
           `${root}/api/payment/shiprocket/wallet-balance`,
         ]
       : [
+          `${base}/api/payment/shiprocket/balance`,
           `${base}/api/payment/shiprocket/wallet-balance`,
           `${base}/api/payment/shiprocket/wallet`,
           `${base}/api/payment/wallet-balance`,
+          `${base}/payment/shiprocket/balance`,
           `${base}/payment/shiprocket/wallet-balance`,
         ];
 

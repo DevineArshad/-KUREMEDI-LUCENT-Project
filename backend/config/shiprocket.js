@@ -553,9 +553,12 @@ export const cancelOrder = async (orderId) => {
 ---------------------------------------------------------- */
 export const getShiprocketWalletBalance = async () => {
   const endpoints = [
-    "https://apiv2.shiprocket.in/v1/external/account/details",
-    "https://apiv2.shiprocket.in/v1/external/account/wallet-balance",
-    "https://apiv2.shiprocket.in/v1/external/settings/account",
+    { method: "get", url: "https://apiv2.shiprocket.in/v1/external/settings/company/details" },
+    { method: "post", url: "https://apiv2.shiprocket.in/v1/external/settings/company/details" },
+    { method: "get", url: "https://apiv2.shiprocket.in/v1/external/account/details" },
+    { method: "get", url: "https://apiv2.shiprocket.in/v1/external/account/wallet-balance" },
+    { method: "get", url: "https://apiv2.shiprocket.in/v1/external/account/balance" },
+    { method: "get", url: "https://apiv2.shiprocket.in/v1/external/settings/account" },
   ];
 
   const parseBalance = (payload) => {
@@ -563,15 +566,31 @@ export const getShiprocketWalletBalance = async () => {
       payload?.wallet_balance,
       payload?.balance,
       payload?.available_balance,
+      payload?.usable_amount,
+      payload?.usableAmount,
+      payload?.current_balance,
+      payload?.currentBalance,
       payload?.data?.wallet_balance,
       payload?.data?.balance,
       payload?.data?.available_balance,
+      payload?.data?.usable_amount,
+      payload?.data?.usableAmount,
+      payload?.data?.current_balance,
+      payload?.data?.currentBalance,
       payload?.response?.wallet_balance,
       payload?.response?.balance,
       payload?.response?.available_balance,
+      payload?.response?.usable_amount,
+      payload?.response?.usableAmount,
+      payload?.response?.current_balance,
+      payload?.response?.currentBalance,
       payload?.response?.data?.wallet_balance,
       payload?.response?.data?.balance,
       payload?.response?.data?.available_balance,
+      payload?.response?.data?.usable_amount,
+      payload?.response?.data?.usableAmount,
+      payload?.response?.data?.current_balance,
+      payload?.response?.data?.currentBalance,
     ];
 
     for (const candidate of numericCandidates) {
@@ -607,9 +626,13 @@ export const getShiprocketWalletBalance = async () => {
   let lastError = null;
   for (const endpoint of endpoints) {
     try {
-      const res = await withShiprocketAuthRetry((token) =>
-        axios.get(endpoint, { headers: { Authorization: `Bearer ${token}` } })
-      );
+      const res = await withShiprocketAuthRetry((token) => {
+        const config = { headers: { Authorization: `Bearer ${token}` } };
+        if (endpoint.method === "post") {
+          return axios.post(endpoint.url, {}, config);
+        }
+        return axios.get(endpoint.url, config);
+      });
 
       const raw = res?.data || {};
       const balance = parseBalance(raw);

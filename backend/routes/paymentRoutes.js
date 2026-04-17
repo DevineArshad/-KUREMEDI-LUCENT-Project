@@ -210,38 +210,6 @@ const shiprocketWalletBalanceHandler = async (req, res) => {
       err?.message ||
       "Failed to fetch Shiprocket wallet balance";
 
-    const isUpstreamNotFound = /404\s*not\s*found/i.test(message);
-
-    if (isUpstreamNotFound) {
-      const lowBalanceRegex = /minimum required balance|insufficient balance|recharge|wallet/i;
-      const hasLowBalanceSignal = await Order.exists({
-        $or: [
-          { shiprocketBalanceWarning: { $regex: lowBalanceRegex } },
-          { shiprocketMessage: { $regex: lowBalanceRegex } },
-        ],
-      });
-
-      if (hasLowBalanceSignal) {
-        return res.json({
-          balance: 99,
-          currency: "INR",
-          isLowBalance: true,
-          threshold: 100,
-          balanceLabel: "< 100",
-          message: "Shiprocket wallet appears below minimum balance (inferred from recent dispatch responses).",
-        });
-      }
-
-      return res.json({
-        balance: null,
-        currency: "INR",
-        isLowBalance: null,
-        threshold: 100,
-        balanceLabel: "Unavailable",
-        message: "Shiprocket account balance API is unavailable for this account right now.",
-      });
-    }
-
     return res.status(400).json({
       message,
       balance: null,
@@ -254,6 +222,7 @@ const shiprocketWalletBalanceHandler = async (req, res) => {
 };
 
 router.get("/shiprocket/wallet-balance", shiprocketWalletBalanceHandler);
+router.get("/shiprocket/balance", shiprocketWalletBalanceHandler);
 router.get("/shiprocket/wallet", shiprocketWalletBalanceHandler);
 router.get("/wallet-balance", shiprocketWalletBalanceHandler);
 
