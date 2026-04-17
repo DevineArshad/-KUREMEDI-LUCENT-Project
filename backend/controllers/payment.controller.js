@@ -15,6 +15,7 @@ import {
   schedulePickup,
   cancelShipment,
   cancelOrder,
+  getShiprocketWalletBalance,
 } from "../config/shiprocket.js";
 import { calculateLinePricing } from "../utils/pricing.js";
 import { getValidatedRazorpayConfig } from "../utils/razorpayConfig.js";
@@ -1412,6 +1413,39 @@ const validateShiprocketPayload = (orderDoc) => {
 
 const roundCurrency = (value) => Math.round(Number(value || 0) * 100) / 100;
 
+const getShiprocketBalanceAmount = async () => {
+  try {
+    const result = await getShiprocketWalletBalance();
+    const amount = Number(result?.balance ?? result?.balance_amount ?? result?.data?.balance_amount);
+    if (!Number.isFinite(amount)) return null;
+    return roundCurrency(amount);
+  } catch {
+    return null;
+  }
+};
+
+const applyShiprocketBalanceDeduction = (order, previousBalance, currentBalance) => {
+  if (!Number.isFinite(Number(previousBalance)) || !Number.isFinite(Number(currentBalance))) {
+    return null;
+  }
+
+  const before = roundCurrency(previousBalance);
+  const after = roundCurrency(currentBalance);
+  const deduction = roundCurrency(before - after);
+
+  order.shiprocketBalanceBefore = before;
+  order.shiprocketBalanceAfter = after;
+
+  if (deduction > 0) {
+    order.shiprocketChargeAmount = deduction;
+    order.shiprocketChargeCurrency = "INR";
+    order.shiprocketMessage = `Deduction = Previous Balance - Current Balance: INR ${before.toFixed(2)} - INR ${after.toFixed(2)} = INR ${deduction.toFixed(2)}`;
+    return deduction;
+  }
+
+  return 0;
+};
+
 const createRazorpayRefund = async ({ paymentId, amountRupee, orderId }) => {
   const razorpay = getValidatedRazorpayConfig();
   const razorpayClient = new Razorpay({
@@ -1575,6 +1609,7 @@ export const generateOrderAwb = async (req, res) => {
               },
             });
           }
+          const shiprocketBalanceBefore = await getShiprocketBalanceAmount();
     if (order.shiprocketAwb && !force) {
       return res.json({
         message: "AWB already exists for this order",
@@ -1655,6 +1690,12 @@ export const generateOrderAwb = async (req, res) => {
     }
     if (Number(order.shiprocketChargeAmount || 0) > 0) {
       order.shiprocketMessage = `Shiprocket charge deducted: ${String(order.shiprocketChargeCurrency || "INR").toUpperCase()} ${Number(order.shiprocketChargeAmount).toFixed(2)}`;
+    }
+
+    const shiprocketBalanceAfter = await getShiprocketBalanceAmount();
+    const balanceDeduction = applyShiprocketBalanceDeduction(order, shiprocketBalanceBefore, shiprocketBalanceAfter);
+    if (balanceDeduction != null && balanceDeduction > 0) {
+      order.shiprocketMessage = `Deduction = Previous Balance - Current Balance: INR ${Number(order.shiprocketBalanceBefore).toFixed(2)} - INR ${Number(order.shiprocketBalanceAfter).toFixed(2)} = INR ${Number(balanceDeduction).toFixed(2)}`;
     }
 
     const warnings = [];
@@ -2037,6 +2078,8 @@ export const updateOrderStatus = async (req, res) => {
         order.status = requestedStatus;
         order.orderStatus = requestedStatus;
 
+        const shiprocketBalanceBefore = requestedStatus === "DISPATCHED" ? await getShiprocketBalanceAmount() : null;
+
         const shouldEnsureShipment = requestedStatus === "DISPATCHED";
         if (shouldEnsureShipment && !order.shiprocketShipmentId) {
           try {
@@ -2141,6 +2184,14 @@ export const updateOrderStatus = async (req, res) => {
           }
         }
       }
+
+        if (requestedStatus === "DISPATCHED") {
+          const shiprocketBalanceAfter = await getShiprocketBalanceAmount();
+          const balanceDeduction = applyShiprocketBalanceDeduction(order, shiprocketBalanceBefore, shiprocketBalanceAfter);
+          if (balanceDeduction != null && balanceDeduction > 0) {
+            order.shiprocketMessage = `Deduction = Previous Balance - Current Balance: INR ${Number(order.shiprocketBalanceBefore).toFixed(2)} - INR ${Number(order.shiprocketBalanceAfter).toFixed(2)} = INR ${Number(balanceDeduction).toFixed(2)}`;
+          }
+        }
     }
 
     Object.keys(fields).forEach((key) => {

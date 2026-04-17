@@ -384,10 +384,23 @@ const Orders = () => {
                 const isUpdating = updatingId === order._id;
                 const shiprocketCharge = Number(order.shiprocketChargeAmount || 0);
                 const shiprocketCurrency = String(order.shiprocketChargeCurrency || "INR").toUpperCase();
-                const chargeText =
-                  shiprocketCharge > 0
-                    ? `Shiprocket charge deducted: ${shiprocketCurrency} ${shiprocketCharge.toFixed(2)}`
+                const shiprocketBalanceBefore = Number(order.shiprocketBalanceBefore);
+                const shiprocketBalanceAfter = Number(order.shiprocketBalanceAfter);
+                const balanceDeduction =
+                  Number.isFinite(shiprocketBalanceBefore) &&
+                  Number.isFinite(shiprocketBalanceAfter) &&
+                  shiprocketBalanceBefore > shiprocketBalanceAfter
+                    ? Math.round((shiprocketBalanceBefore - shiprocketBalanceAfter) * 100) / 100
+                    : 0;
+                const deductionText =
+                  balanceDeduction > 0
+                    ? `Deduction = Previous Balance - Current Balance: ${shiprocketCurrency} ${shiprocketBalanceBefore.toFixed(2)} - ${shiprocketCurrency} ${shiprocketBalanceAfter.toFixed(2)} = ${shiprocketCurrency} ${balanceDeduction.toFixed(2)}`
                     : "";
+                const chargeText =
+                  deductionText ||
+                  (shiprocketCharge > 0
+                    ? `Shiprocket charge deducted: ${shiprocketCurrency} ${shiprocketCharge.toFixed(2)}`
+                    : "");
                 const validAwb = isValidAwbText(order.shiprocketAwb) ? String(order.shiprocketAwb).trim() : "";
                 const shipmentId = String(order.shiprocketShipmentId || "").split(",")[0].trim();
                 const legacyShiprocketMessage = extractLegacyShiprocketMessage(order);
@@ -405,7 +418,7 @@ const Orders = () => {
                     ? `${legacyShiprocketMessage} (${chargeText})`
                     : legacyShiprocketMessage;
                   messageClass = "text-red-700";
-                } else if (shiprocketCharge > 0) {
+                } else if (balanceDeduction > 0 || shiprocketCharge > 0) {
                   messageContent = chargeText;
                   messageClass = "text-emerald-700";
                 } else if (order.shiprocketMessage) {
