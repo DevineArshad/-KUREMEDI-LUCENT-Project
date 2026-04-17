@@ -553,6 +553,7 @@ export const cancelOrder = async (orderId) => {
 ---------------------------------------------------------- */
 export const getShiprocketWalletBalance = async () => {
   const endpoints = [
+    { method: "get", url: "https://apiv2.shiprocket.in/v1/external/account/details/wallet-balance" },
     { method: "get", url: "https://apiv2.shiprocket.in/v1/external/settings/company/details" },
     { method: "post", url: "https://apiv2.shiprocket.in/v1/external/settings/company/details" },
     { method: "get", url: "https://apiv2.shiprocket.in/v1/external/account/details" },
@@ -563,6 +564,7 @@ export const getShiprocketWalletBalance = async () => {
 
   const parseBalance = (payload) => {
     const numericCandidates = [
+      payload?.balance_amount,
       payload?.wallet_balance,
       payload?.balance,
       payload?.available_balance,
@@ -570,6 +572,7 @@ export const getShiprocketWalletBalance = async () => {
       payload?.usableAmount,
       payload?.current_balance,
       payload?.currentBalance,
+      payload?.data?.balance_amount,
       payload?.data?.wallet_balance,
       payload?.data?.balance,
       payload?.data?.available_balance,
@@ -577,6 +580,7 @@ export const getShiprocketWalletBalance = async () => {
       payload?.data?.usableAmount,
       payload?.data?.current_balance,
       payload?.data?.currentBalance,
+      payload?.response?.balance_amount,
       payload?.response?.wallet_balance,
       payload?.response?.balance,
       payload?.response?.available_balance,
@@ -584,6 +588,7 @@ export const getShiprocketWalletBalance = async () => {
       payload?.response?.usableAmount,
       payload?.response?.current_balance,
       payload?.response?.currentBalance,
+      payload?.response?.data?.balance_amount,
       payload?.response?.data?.wallet_balance,
       payload?.response?.data?.balance,
       payload?.response?.data?.available_balance,
