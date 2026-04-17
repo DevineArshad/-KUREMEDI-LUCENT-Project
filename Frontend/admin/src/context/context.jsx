@@ -546,17 +546,39 @@ export const ContextProvider = ({ children }) => {
 
   const getShiprocketWalletBalance = async () => {
     const base = BASE_URL.replace(/\/$/, "");
-    const url = base.includes("/api")
-      ? `${base}/payment/shiprocket/wallet-balance`
-      : `${base}/api/payment/shiprocket/wallet-balance`;
+    const root = base.includes("/api") ? base.replace(/\/api$/, "") : base;
+    const candidates = base.includes("/api")
+      ? [
+          `${base}/payment/shiprocket/wallet-balance`,
+          `${base}/payment/shiprocket/wallet`,
+          `${base}/payment/wallet-balance`,
+          `${root}/api/payment/shiprocket/wallet-balance`,
+        ]
+      : [
+          `${base}/api/payment/shiprocket/wallet-balance`,
+          `${base}/api/payment/shiprocket/wallet`,
+          `${base}/api/payment/wallet-balance`,
+          `${base}/payment/shiprocket/wallet-balance`,
+        ];
 
-    try {
-      const res = await axios.get(url, { headers: getAuthHeaders() });
-      return res.data;
-    } catch (error) {
-      console.error("fetch shiprocket wallet balance error", error);
-      throw error;
+    let lastError = null;
+
+    for (const url of candidates) {
+      try {
+        const res = await axios.get(url, { headers: getAuthHeaders() });
+        return res.data;
+      } catch (error) {
+        lastError = error;
+        const status = Number(error?.response?.status || 0);
+        // Try next candidate on not found/method mismatch only.
+        if (![404, 405].includes(status)) {
+          break;
+        }
+      }
     }
+
+    console.error("fetch shiprocket wallet balance error", lastError);
+    throw lastError || new Error("Failed to fetch Shiprocket wallet balance");
   };
 
   const getReferralAmount = async () => {

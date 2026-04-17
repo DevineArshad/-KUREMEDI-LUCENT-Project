@@ -186,7 +186,7 @@ router.get("/orders/:orderId", async (req, res) => {
   }
 });
 
-router.get("/shiprocket/wallet-balance", async (req, res) => {
+const shiprocketWalletBalanceHandler = async (req, res) => {
   try {
     const result = await getShiprocketWalletBalance();
     const balance = Number(result?.balance || 0);
@@ -217,7 +217,11 @@ router.get("/shiprocket/wallet-balance", async (req, res) => {
       threshold: 100,
     });
   }
-});
+};
+
+router.get("/shiprocket/wallet-balance", shiprocketWalletBalanceHandler);
+router.get("/shiprocket/wallet", shiprocketWalletBalanceHandler);
+router.get("/wallet-balance", shiprocketWalletBalanceHandler);
 
 router.put("/update-status", updateOrderStatus);
 router.post("/orders/:orderId/shiprocket/generate-awb", generateOrderAwb);
