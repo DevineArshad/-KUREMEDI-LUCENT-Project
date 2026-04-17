@@ -36,6 +36,29 @@ const formatDate = (d) => {
   });
 };
 
+const isValidAwbText = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  if (text.length < 6 || text.length > 80) return false;
+  if (/\s/.test(text)) return false;
+  if (/https?:\/\//i.test(text)) return false;
+  if (!/[0-9]/.test(text)) return false;
+  if (!/^[A-Za-z0-9_-]+$/.test(text)) return false;
+  return true;
+};
+
+const extractLegacyShiprocketMessage = (order) => {
+  const sources = [order?.shiprocketAwb, order?.shiprocketShipmentId, order?.shiprocketMessage];
+  for (const source of sources) {
+    const text = String(source || "").trim();
+    if (!text) continue;
+    if (/insufficient balance|minimum required balance|recharge|wallet|kyc|forbidden|unauthorized|permission|validation failed|missing state/i.test(text)) {
+      return text;
+    }
+  }
+  return "";
+};
+
 
 
 const Orders = () => {
@@ -271,12 +294,18 @@ const Orders = () => {
                 const shiprocketCharge = Number(order.shiprocketChargeAmount || 0);
                 const shiprocketCurrency = String(order.shiprocketChargeCurrency || "INR").toUpperCase();
                 const hasDispatchMessage = status === "DISPATCHED";
+                const validAwb = isValidAwbText(order.shiprocketAwb) ? String(order.shiprocketAwb).trim() : "";
+                const shipmentId = String(order.shiprocketShipmentId || "").split(",")[0].trim();
+                const legacyShiprocketMessage = extractLegacyShiprocketMessage(order);
 
                 let messageContent = "-";
                 let messageClass = "text-gray-600";
 
                 if (hasDispatchMessage && order.shiprocketBalanceWarning) {
                   messageContent = order.shiprocketBalanceWarning;
+                  messageClass = "text-red-700";
+                } else if (hasDispatchMessage && legacyShiprocketMessage) {
+                  messageContent = legacyShiprocketMessage;
                   messageClass = "text-red-700";
                 } else if (hasDispatchMessage && shiprocketCharge > 0) {
                   messageContent = `Shiprocket charge deducted: ${shiprocketCurrency} ${shiprocketCharge.toFixed(2)}`;
@@ -349,14 +378,10 @@ const Orders = () => {
                       </span>
                     </td>
                     <td className="p-3 text-xs text-gray-600 font-mono">
-                      {order.shiprocketBalanceWarning ? (
-                        <div className="bg-red-50 border border-red-200 rounded p-2">
-                          <p className="text-red-700 text-xs font-medium">{order.shiprocketBalanceWarning}</p>
-                        </div>
-                      ) : order.shiprocketShipmentId ? (
-                        <span title={`AWB: ${order.shiprocketAwb || "—"}`}>
-                          ID: {String(order.shiprocketShipmentId).slice(0, 8)}
-                          {order.shiprocketAwb ? ` · ${order.shiprocketAwb}` : ""}
+                      {shipmentId ? (
+                        <span title={`AWB: ${validAwb || "—"}`}>
+                          ID: {shipmentId}
+                          {validAwb ? ` · AWB: ${validAwb}` : ""}
                         </span>
                       ) : (
                         "—"
