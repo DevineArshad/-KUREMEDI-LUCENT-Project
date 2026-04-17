@@ -164,24 +164,30 @@ export const mapOrderToShiprocketPayload = (orderDoc) => {
     const prefix = parseInt(inferredPincode.slice(0, 2), 10);
     inferredState = pincodeToState[prefix] || "Uttar Pradesh";
   }
+  // Try to infer from address text
   if (!inferredState && rawAddress) {
     const upper = rawAddress.toUpperCase();
-    if (upper.includes("UTTAR PRADESH") || upper.includes(" U.P ") || upper.includes(", UP ")) inferredState = "Uttar Pradesh";
+    if (upper.includes("UTTAR PRADESH") || upper.includes(" U.P") || upper.includes(", UP") || upper.includes("UP ")) inferredState = "Uttar Pradesh";
     else if (upper.includes("MAHARASHTRA")) inferredState = "Maharashtra";
     else if (upper.includes("RAJASTHAN")) inferredState = "Rajasthan";
     else if (upper.includes("KARNATAKA")) inferredState = "Karnataka";
     else if (upper.includes("TAMIL NADU") || upper.includes("TAMILNADU")) inferredState = "Tamil Nadu";
     else if (upper.includes("WEST BENGAL") || upper.includes("BENGAL")) inferredState = "West Bengal";
     else if (upper.includes("GUJARAT")) inferredState = "Gujarat";
-    else if (upper.includes("MADHYA PRADESH") || upper.includes(" M.P ")) inferredState = "Madhya Pradesh";
+    else if (upper.includes("MADHYA PRADESH") || upper.includes(" M.P") || upper.includes("MP ")) inferredState = "Madhya Pradesh";
     else if (upper.includes("BIHAR")) inferredState = "Bihar";
-    else if (upper.includes("DELHI")) inferredState = "Delhi";
+    else if (upper.includes("DELHI") || upper.includes(" NCR")) inferredState = "Delhi";
     else if (upper.includes("PUNJAB")) inferredState = "Punjab";
     else if (upper.includes("HARYANA")) inferredState = "Haryana";
     else if (upper.includes("KERALA")) inferredState = "Kerala";
-    else if (upper.includes("ANDHRA")) inferredState = "Andhra Pradesh";
+    else if (upper.includes("ANDHRA PRADESH") || upper.includes("ANDHRA")) inferredState = "Andhra Pradesh";
     else if (upper.includes("TELANGANA")) inferredState = "Telangana";
     else if (upper.includes("ODISHA") || upper.includes("ORISSA")) inferredState = "Odisha";
+    else if (upper.includes("CHHATTISGARH")) inferredState = "Chhattisgarh";
+    else if (upper.includes("ASSAM")) inferredState = "Assam";
+    else if (upper.includes("JHARKHAND")) inferredState = "Jharkhand";
+    else if (upper.includes("HIMACHAL")) inferredState = "Himachal Pradesh";
+    else if (upper.includes("JAMMU") || upper.includes("KASHMIR")) inferredState = "Jammu and Kashmir";
     else inferredState = "Uttar Pradesh";
   }
   if (!inferredState) inferredState = "Uttar Pradesh";
@@ -268,6 +274,9 @@ export const createShiprocketOrder = async (order) => {
     const billingFirstName = nameParts[0] || "Customer";
     const billingLastName = nameParts.slice(1).join(" ").trim() || "";
 
+    // Ensure state is always provided; default to Uttar Pradesh if missing
+    const billingState = (delivery.state || "").trim() || "Uttar Pradesh";
+
     const payload = {
       order_id: order._id?.toString?.() || order._id,
       order_date: orderDateStr,
@@ -277,7 +286,7 @@ export const createShiprocketOrder = async (order) => {
       billing_address: finalAddress || delivery.address_line || "Address",
       billing_city: delivery.city || "",
       billing_pincode: (delivery.pincode || "").toString().trim() || "110001",
-      billing_state: delivery.state || "",
+      billing_state: billingState,
       billing_country: "India",
       billing_email: userId.email || "noemail@example.com",
       billing_phone: (userId.mobile || userId.phone || "9999999999").toString().trim(),

@@ -98,7 +98,6 @@ async function fetchRazorpayOrderPayments({ keyId, keySecret, orderId }) {
     },
   });
 
-  let data = null;
   try {
     data = await response.json();
   } catch {
@@ -392,14 +391,44 @@ export const createPaymentOrder = async (req, res) => {
       pincode: String(shippingAddress.pincode || "").trim(),
     };
 
+    // Infer state from pincode if not provided
+    if (!normalizedShippingAddress.state && normalizedShippingAddress.pincode.length >= 2) {
+      const pincodePrefix = parseInt(normalizedShippingAddress.pincode.slice(0, 2), 10);
+      const pincodeToState = {
+        11: "Delhi", 12: "Haryana", 13: "Uttar Pradesh", 14: "Punjab", 15: "Punjab",
+        16: "Chandigarh", 17: "Himachal Pradesh", 18: "Jammu and Kashmir", 19: "Punjab",
+        20: "Maharashtra", 21: "Madhya Pradesh", 22: "Madhya Pradesh", 23: "Uttar Pradesh",
+        24: "Uttar Pradesh", 25: "Uttar Pradesh", 26: "Uttar Pradesh", 27: "Uttar Pradesh",
+        28: "Uttar Pradesh", 29: "Uttar Pradesh", 30: "Rajasthan", 31: "Rajasthan",
+        32: "Rajasthan", 33: "Punjab", 34: "Rajasthan", 36: "Gujarat", 37: "Gujarat",
+        38: "Gujarat", 39: "Gujarat", 40: "Maharashtra", 41: "Maharashtra", 42: "Maharashtra",
+        43: "Maharashtra", 44: "Maharashtra", 45: "Madhya Pradesh", 46: "Madhya Pradesh",
+        48: "Madhya Pradesh", 49: "Chhattisgarh", 50: "Telangana", 51: "Andhra Pradesh",
+        52: "Andhra Pradesh", 53: "Andhra Pradesh", 56: "Karnataka", 57: "Karnataka",
+        58: "Karnataka", 59: "Karnataka", 60: "Tamil Nadu", 61: "Tamil Nadu", 62: "Tamil Nadu",
+        63: "Tamil Nadu", 64: "Tamil Nadu", 67: "Andhra Pradesh", 68: "Kerala",
+        69: "Kerala", 70: "West Bengal", 71: "West Bengal", 72: "West Bengal",
+        73: "West Bengal", 74: "West Bengal", 75: "Odisha", 76: "Odisha", 77: "Odisha",
+        78: "Assam", 79: "Assam", 80: "Bihar", 81: "Bihar", 82: "Jharkhand",
+        83: "Uttar Pradesh", 84: "Bihar", 85: "Jharkhand", 91: "Uttar Pradesh",
+      };
+      normalizedShippingAddress.state = pincodeToState[pincodePrefix] || "Uttar Pradesh";
+    }
+
+    // Default state to Uttar Pradesh if still missing
+    if (!normalizedShippingAddress.state) {
+      normalizedShippingAddress.state = "Uttar Pradesh";
+    }
+
     if (
       !normalizedShippingAddress.address ||
       !normalizedShippingAddress.city ||
       !normalizedShippingAddress.pincode ||
-      !normalizedShippingAddress.phone
+      !normalizedShippingAddress.phone ||
+      !normalizedShippingAddress.state
     ) {
       return res.status(400).json({
-        message: "Address, city, pincode and phone are required",
+        message: "Address, city, pincode, phone and state are required",
         code: "INVALID_SHIPPING_ADDRESS",
       });
     }
@@ -1322,17 +1351,54 @@ export const generateOrderAwb = async (req, res) => {
       });
     }
 
-    const payloadIssues = validateShiprocketPayload(order);
-    if (payloadIssues.length > 0) {
-      return res.status(400).json({
-        message: `Shiprocket validation failed: missing ${payloadIssues.join(", ")}.`,
-        shiprocketError: {
-          stage: "validation",
-          issues: payloadIssues,
-        },
-      });
-    }
+      // Ensure state is populated even for old orders (fixes legacy orders without state)
+      if (!order.shippingAddress) {
+        order.shippingAddress = {};
+      }
+    
+      if (!String(order.shippingAddress.state || "").trim()) {
+        const pincodeToState = {
+          11: "Delhi", 12: "Haryana", 13: "Uttar Pradesh", 14: "Punjab", 15: "Punjab",
+          16: "Chandigarh", 17: "Himachal Pradesh", 18: "Jammu and Kashmir", 19: "Punjab",
+          20: "Maharashtra", 21: "Madhya Pradesh", 22: "Madhya Pradesh", 23: "Uttar Pradesh",
+          24: "Uttar Pradesh", 25: "Uttar Pradesh", 26: "Uttar Pradesh", 27: "Uttar Pradesh",
+          28: "Uttar Pradesh", 29: "Uttar Pradesh", 30: "Rajasthan", 31: "Rajasthan",
+          32: "Rajasthan", 33: "Punjab", 34: "Rajasthan", 36: "Gujarat", 37: "Gujarat",
+          38: "Gujarat", 39: "Gujarat", 40: "Maharashtra", 41: "Maharashtra", 42: "Maharashtra",
+          43: "Maharashtra", 44: "Maharashtra", 45: "Madhya Pradesh", 46: "Madhya Pradesh",
+          48: "Madhya Pradesh", 49: "Chhattisgarh", 50: "Telangana", 51: "Andhra Pradesh",
+          52: "Andhra Pradesh", 53: "Andhra Pradesh", 56: "Karnataka", 57: "Karnataka",
+          58: "Karnataka", 59: "Karnataka", 60: "Tamil Nadu", 61: "Tamil Nadu", 62: "Tamil Nadu",
+          63: "Tamil Nadu", 64: "Tamil Nadu", 67: "Andhra Pradesh", 68: "Kerala",
+          69: "Kerala", 70: "West Bengal", 71: "West Bengal", 72: "West Bengal",
+          73: "West Bengal", 74: "West Bengal", 75: "Odisha", 76: "Odisha", 77: "Odisha",
+          78: "Assam", 79: "Assam", 80: "Bihar", 81: "Bihar", 82: "Jharkhand",
+          83: "Uttar Pradesh", 84: "Bihar", 85: "Jharkhand", 91: "Uttar Pradesh",
+        };
+      
+        const pincode = String(order.shippingAddress.pincode || "").trim();
+        if (pincode.length >= 2) {
+          const prefix = parseInt(pincode.slice(0, 2), 10);
+          order.shippingAddress.state = pincodeToState[prefix] || "Uttar Pradesh";
+        } else {
+          order.shippingAddress.state = "Uttar Pradesh";
+        }
+      
+        // Save the populated state for future use
+        await order.save();
+      }
 
+
+          const payloadIssues = validateShiprocketPayload(order);
+          if (payloadIssues.length > 0) {
+            return res.status(400).json({
+              message: `Shiprocket validation failed: missing ${payloadIssues.join(", ")}.`,
+              shiprocketError: {
+                stage: "validation",
+                issues: payloadIssues,
+              },
+            });
+          }
     if (order.shiprocketAwb && !force) {
       return res.json({
         message: "AWB already exists for this order",
