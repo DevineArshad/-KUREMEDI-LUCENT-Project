@@ -1199,6 +1199,7 @@ router.put(
       const effectiveDrugLicenseDoc = files?.drugLicenseDoc?.[0] || user.drugLicenseDoc;
       const effectiveCancelChequeDoc = files?.cancelChequeDoc?.[0] || user.cancelChequeDoc;
       const effectiveGstDoc = files?.gstDoc?.[0] || user.gstDoc;
+      const effectiveShopImage = files?.shopImage?.[0] || user.shopImage;
       const effectiveGstNumber = normalizedGstNumber || String(user.gstNumber || "").trim().toUpperCase();
 
       if (!normalizedDrugLicenseNumber && !String(user.drugLicenseNumber || "").trim()) {
@@ -1228,11 +1229,17 @@ router.put(
       if (!effectiveCancelChequeDoc) {
         return res.status(400).json({ message: "Upload cancel cheque or passbook document" });
       }
+      if (!effectiveGstNumber) {
+        return res.status(400).json({ message: "GST number is required" });
+      }
       if (effectiveGstNumber && !GST_REGEX.test(effectiveGstNumber)) {
         return res.status(400).json({ message: "Invalid GST number. Enter a valid 15-character GSTIN" });
       }
-      if (effectiveGstDoc && !effectiveGstNumber) {
-        return res.status(400).json({ message: "GST number is required when GST certificate is uploaded" });
+      if (!effectiveGstDoc) {
+        return res.status(400).json({ message: "Upload GST certificate document" });
+      }
+      if (!effectiveShopImage) {
+        return res.status(400).json({ message: "Upload shop photo" });
       }
 
       if (aadharNumber) user.aadharNumber = aadharNumber;

@@ -230,6 +230,9 @@ function KycPageInner() {
     const err = {};
     if (!drugLicenseNumber.trim()) err.drugLicenseNumber = 'Drug license number is required';
     if (!drugLicenseFile) err.drugLicenseFile = 'Upload drug license document (required)';
+    if (!gstNumber.trim()) err.gstNumber = 'GST number is required';
+    if (!gstFile) err.gstFile = 'Upload GST certificate (required)';
+    if (!shopPhotoFile) err.shopPhotoFile = 'Upload shop photo (required)';
     if (!bankName.trim()) err.bankName = 'Bank name is required';
     if (!accountHolderName.trim()) err.accountHolderName = 'Account holder name is required';
     if (!accountNumber.trim()) err.accountNumber = 'Account number is required';
@@ -384,7 +387,7 @@ function KycPageInner() {
 
           {/* GST Section */}
           <div className="bg-white rounded-2xl p-4 border border-gray-200 shadow-sm">
-            <label className="block text-sm font-medium text-gray-700 mb-2">GST Number</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">GST Number <span className="text-red-500">*</span></label>
             <input
               type="text"
               placeholder="Enter GST number"
@@ -395,7 +398,7 @@ function KycPageInner() {
             {errors.gstNumber && <p className="text-red-500 text-sm mt-1">{errors.gstNumber}</p>}
 
             <div className="mt-4 pt-4 border-t border-gray-100">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Upload GST Certificate</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Upload GST Certificate <span className="text-red-500">*</span></label>
               <input
                 type="file"
                 accept=".pdf,.jpg,.jpeg,.png"
@@ -418,7 +421,7 @@ function KycPageInner() {
 
           {/* Shop Photo Section */}
           <div className="bg-white rounded-2xl p-4 border border-gray-200 shadow-sm">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Upload Shop Photo</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Upload Shop Photo <span className="text-red-500">*</span></label>
             <input
               type="file"
               accept=".pdf,.jpg,.jpeg,.png"
