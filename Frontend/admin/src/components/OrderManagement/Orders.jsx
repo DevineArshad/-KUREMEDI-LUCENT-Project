@@ -70,6 +70,7 @@ const Orders = () => {
   const [updatingId, setUpdatingId] = useState(null);
   const [walletData, setWalletData] = useState({
     balance: null,
+    balanceLabel: "Unavailable",
     currency: "INR",
     isLowBalance: null,
     threshold: 100,
@@ -121,6 +122,7 @@ const Orders = () => {
       const data = await getShiprocketWalletBalance();
       setWalletData({
         balance: Number(data?.balance),
+        balanceLabel: String(data?.balanceLabel || ""),
         currency: String(data?.currency || "INR").toUpperCase(),
         isLowBalance: Boolean(data?.isLowBalance),
         threshold: Number(data?.threshold || 100),
@@ -130,6 +132,7 @@ const Orders = () => {
       const msg = String(err?.response?.data?.message || "Unable to fetch Shiprocket wallet balance");
       setWalletData({
         balance: null,
+        balanceLabel: "Unavailable",
         currency: "INR",
         isLowBalance: null,
         threshold: 100,
@@ -298,9 +301,11 @@ const Orders = () => {
             <h3 className="mt-1 text-2xl font-extrabold text-gray-900">
               {walletLoading
                 ? "Loading..."
-                : walletData.balance == null
-                  ? "Unavailable"
-                  : `${walletData.currency} ${Number(walletData.balance).toFixed(2)}`}
+                : walletData.balanceLabel
+                  ? (walletData.balanceLabel === "Unavailable" ? walletData.balanceLabel : `${walletData.currency} ${walletData.balanceLabel}`)
+                  : walletData.balance == null
+                    ? "Unavailable"
+                    : `${walletData.currency} ${Number(walletData.balance).toFixed(2)}`}
             </h3>
           </div>
           <div className="text-sm">
