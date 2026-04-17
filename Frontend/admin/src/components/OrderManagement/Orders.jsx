@@ -386,15 +386,21 @@ const Orders = () => {
                 const shiprocketCurrency = String(order.shiprocketChargeCurrency || "INR").toUpperCase();
                 const shiprocketBalanceBefore = Number(order.shiprocketBalanceBefore);
                 const shiprocketBalanceAfter = Number(order.shiprocketBalanceAfter);
+                const derivedBalanceAfter =
+                  Number.isFinite(shiprocketBalanceBefore) &&
+                  !Number.isFinite(shiprocketBalanceAfter) &&
+                  shiprocketCharge > 0
+                    ? Math.max(0, Math.round((shiprocketBalanceBefore - shiprocketCharge) * 100) / 100)
+                    : shiprocketBalanceAfter;
                 const balanceDeduction =
                   Number.isFinite(shiprocketBalanceBefore) &&
-                  Number.isFinite(shiprocketBalanceAfter) &&
-                  shiprocketBalanceBefore > shiprocketBalanceAfter
-                    ? Math.round((shiprocketBalanceBefore - shiprocketBalanceAfter) * 100) / 100
+                  Number.isFinite(derivedBalanceAfter) &&
+                  shiprocketBalanceBefore > derivedBalanceAfter
+                    ? Math.round((shiprocketBalanceBefore - derivedBalanceAfter) * 100) / 100
                     : 0;
                 const deductionText =
                   balanceDeduction > 0
-                    ? `Deduction = Previous Balance - Current Balance: ${shiprocketCurrency} ${shiprocketBalanceBefore.toFixed(2)} - ${shiprocketCurrency} ${shiprocketBalanceAfter.toFixed(2)} = ${shiprocketCurrency} ${balanceDeduction.toFixed(2)}`
+                    ? `Deduction = Previous Balance - Current Balance: ${shiprocketCurrency} ${shiprocketBalanceBefore.toFixed(2)} - ${shiprocketCurrency} ${Number(derivedBalanceAfter).toFixed(2)} = ${shiprocketCurrency} ${balanceDeduction.toFixed(2)}`
                     : "";
                 const chargeText =
                   deductionText ||
