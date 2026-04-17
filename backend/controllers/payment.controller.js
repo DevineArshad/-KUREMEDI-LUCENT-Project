@@ -1208,6 +1208,35 @@ const extractShiprocketErrorMessage = (payload) => {
   return "Shiprocket shipment creation failed";
 };
 
+const mapFriendlyAwbErrorMessage = (rawMessage) => {
+  const text = String(rawMessage || "").trim();
+  const lower = text.toLowerCase();
+
+  if (!text) return "Failed to generate AWB from Shiprocket.";
+
+  if (/insufficient balance|minimum required balance|recharge|wallet/.test(lower)) {
+    return "Please recharge your ShipRocket wallet. The minimum required balance is Rs 100.";
+  }
+
+  if (/kyc|verification|complete your kyc/.test(lower)) {
+    return "Complete KYC on Shiprocket to generate AWB. Log in to Shiprocket dashboard and retry.";
+  }
+
+  if (/missing state/.test(lower)) {
+    return "Shiprocket address validation failed: state is missing in shipping address.";
+  }
+
+  if (/access forbidden|unauthorized|permission|blocked/.test(lower)) {
+    return "Shiprocket account does not have permission to assign AWB right now.";
+  }
+
+  if (/validation failed|missing city|missing pincode|missing address|invalid pincode/.test(lower)) {
+    return `Shiprocket address validation failed: ${text}`;
+  }
+
+  return `Shiprocket AWB error: ${text}`;
+};
+
 const isShiprocketAccessError = (payload) => {
   const status = Number(payload?.status || payload?.response?.status || 0);
   const message = String(
@@ -1433,16 +1462,20 @@ export const generateOrderAwb = async (req, res) => {
       awbRes = await generateAWB(shipmentId);
     } catch (awbErr) {
       const payload = awbErr.shiprocket || awbErr.response?.data || { message: awbErr.message };
+      const detail = extractShiprocketErrorMessage(payload);
       return res.status(400).json({
-        message: "Failed to generate AWB",
+        message: mapFriendlyAwbErrorMessage(detail),
+        awbMessage: mapFriendlyAwbErrorMessage(detail),
         shiprocketError: payload,
       });
     }
 
     const awbCode = readAwbFromKnownKeys(awbRes);
     if (!awbCode) {
+      const detail = extractShiprocketErrorMessage(awbRes);
       return res.status(400).json({
-        message: "Shiprocket did not return a valid AWB code for this shipment.",
+        message: mapFriendlyAwbErrorMessage(detail),
+        awbMessage: mapFriendlyAwbErrorMessage(detail),
         shiprocketResponse: awbRes,
       });
     }
@@ -1914,8 +1947,9 @@ export const updateOrderStatus = async (req, res) => {
               } catch {
               }
             } else {
+              const detail = extractShiprocketErrorMessage(awbRes);
               awbError = {
-                message: "Shiprocket did not return a valid AWB code for this shipment.",
+                message: mapFriendlyAwbErrorMessage(detail),
                 response: awbRes,
               };
             }
