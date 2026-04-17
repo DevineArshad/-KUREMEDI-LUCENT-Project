@@ -1186,26 +1186,74 @@ const ensureShiprocketShipment = async (order) => {
 };
 
 const extractShiprocketErrorMessage = (payload) => {
-  const candidates = [
+  const toText = (value) => {
+    if (value == null) return "";
+    if (typeof value === "string") return value.trim();
+    if (typeof value === "number" || typeof value === "boolean") return String(value).trim();
+    return "";
+  };
+
+  const explicitCandidates = [
     payload?.message,
     payload?.error,
+    payload?.detail,
+    payload?.reason,
     payload?.data?.message,
     payload?.data?.error,
+    payload?.data?.detail,
+    payload?.data?.reason,
     payload?.response?.message,
     payload?.response?.error,
+    payload?.response?.detail,
+    payload?.response?.reason,
     payload?.response?.data?.message,
     payload?.response?.data?.error,
+    payload?.response?.data?.detail,
+    payload?.response?.data?.reason,
     payload?.errors?.[0]?.message,
+    payload?.errors?.[0],
     payload?.data?.errors?.[0]?.message,
+    payload?.data?.errors?.[0],
     payload?.response?.data?.errors?.[0]?.message,
+    payload?.response?.data?.errors?.[0],
   ];
 
-  for (const candidate of candidates) {
-    const text = String(candidate || "").trim();
+  for (const candidate of explicitCandidates) {
+    const text = toText(candidate);
     if (text) return text;
   }
 
-  return "Shiprocket shipment creation failed";
+  const visited = new Set();
+  const deepScan = (node) => {
+    if (!node || typeof node !== "object") return "";
+    if (visited.has(node)) return "";
+    visited.add(node);
+
+    const preferredKeys = ["message", "error", "detail", "reason", "remarks", "description"];
+    for (const key of preferredKeys) {
+      const text = toText(node[key]);
+      if (text) return text;
+    }
+
+    for (const value of Object.values(node)) {
+      const direct = toText(value);
+      if (direct && /error|invalid|missing|failed|forbidden|unauthorized|kyc|wallet|balance/i.test(direct)) {
+        return direct;
+      }
+
+      if (value && typeof value === "object") {
+        const nested = deepScan(value);
+        if (nested) return nested;
+      }
+    }
+
+    return "";
+  };
+
+  const deepMessage = deepScan(payload);
+  if (deepMessage) return deepMessage;
+
+  return "Shiprocket did not return a detailed error. Please verify pickup location, shipping address, wallet balance, and KYC status.";
 };
 
 const mapFriendlyAwbErrorMessage = (rawMessage) => {
@@ -1232,6 +1280,10 @@ const mapFriendlyAwbErrorMessage = (rawMessage) => {
 
   if (/validation failed|missing city|missing pincode|missing address|invalid pincode/.test(lower)) {
     return `Shiprocket address validation failed: ${text}`;
+  }
+
+  if (/shipment creation failed/.test(lower)) {
+    return "Shiprocket could not create shipment. Please check pickup location, shipping address, wallet balance, and KYC status.";
   }
 
   return `Shiprocket AWB error: ${text}`;
