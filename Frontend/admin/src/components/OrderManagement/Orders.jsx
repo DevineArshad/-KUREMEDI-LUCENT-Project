@@ -24,10 +24,15 @@ const STATUS_OPTIONS = [
 const formatDate = (d) => {
   if (!d) return "-";
   const dt = new Date(d);
-  return dt.toLocaleDateString("en-IN", {
+  if (Number.isNaN(dt.getTime())) return "-";
+
+  return dt.toLocaleString("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
   });
 };
 
