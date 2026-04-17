@@ -1162,6 +1162,86 @@ const readAwbFromKnownKeys = (payload) => {
   return scan(payload);
 };
 
+const extractShiprocketCharge = (payload) => {
+  const currencyCandidates = [
+    payload?.currency,
+    payload?.data?.currency,
+    payload?.response?.currency,
+    payload?.response?.data?.currency,
+  ];
+
+  const currency =
+    currencyCandidates
+      .map((v) => String(v || "").trim().toUpperCase())
+      .find((v) => /^[A-Z]{3}$/.test(v)) || "INR";
+
+  const directCandidates = [
+    payload?.shipping_charges,
+    payload?.shipping_charge,
+    payload?.courier_charges,
+    payload?.courier_charge,
+    payload?.freight_charge,
+    payload?.freight_charges,
+    payload?.total_charges,
+    payload?.data?.shipping_charges,
+    payload?.data?.shipping_charge,
+    payload?.data?.courier_charges,
+    payload?.data?.courier_charge,
+    payload?.data?.freight_charge,
+    payload?.data?.freight_charges,
+    payload?.response?.shipping_charges,
+    payload?.response?.shipping_charge,
+    payload?.response?.courier_charges,
+    payload?.response?.courier_charge,
+    payload?.response?.freight_charge,
+    payload?.response?.freight_charges,
+    payload?.response?.data?.shipping_charges,
+    payload?.response?.data?.shipping_charge,
+    payload?.response?.data?.courier_charges,
+    payload?.response?.data?.courier_charge,
+    payload?.response?.data?.freight_charge,
+    payload?.response?.data?.freight_charges,
+  ];
+
+  const parseNumber = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return null;
+    if (num <= 0) return null;
+    return Math.round(num * 100) / 100;
+  };
+
+  for (const candidate of directCandidates) {
+    const amount = parseNumber(candidate);
+    if (amount != null) return { amount, currency };
+  }
+
+  const visited = new Set();
+  const deepScan = (node) => {
+    if (!node || typeof node !== "object") return null;
+    if (visited.has(node)) return null;
+    visited.add(node);
+
+    for (const [key, value] of Object.entries(node)) {
+      const lowerKey = String(key || "").toLowerCase();
+      if (/(charge|freight|shipping)/.test(lowerKey)) {
+        const amount = parseNumber(value);
+        if (amount != null) return amount;
+      }
+
+      if (value && typeof value === "object") {
+        const nested = deepScan(value);
+        if (nested != null) return nested;
+      }
+    }
+
+    return null;
+  };
+
+  const amount = deepScan(payload);
+  if (amount != null) return { amount, currency };
+  return null;
+};
+
 const ensureShiprocketShipment = async (order) => {
   if (order.shiprocketShipmentId) {
     return String(order.shiprocketShipmentId).split(",")[0].trim();
@@ -1170,6 +1250,7 @@ const ensureShiprocketShipment = async (order) => {
   const orderWithUser = await Order.findById(order._id).populate("user", "name email phone");
   const forShiprocket = mapOrderToShiprocketPayload(orderWithUser);
   const srRes = await createShiprocketOrder(forShiprocket);
+  const charge = extractShiprocketCharge(srRes);
   const shipmentId = getShipmentIdFromShiprocketResponse(srRes);
   const shiprocketOrderId = getShiprocketOrderIdFromResponse(srRes);
 
@@ -1180,6 +1261,11 @@ const ensureShiprocketShipment = async (order) => {
   order.shiprocketShipmentId = String(shipmentId);
   if (shiprocketOrderId && shiprocketOrderId !== String(order.orderId || order._id || "")) {
     order.shiprocketOrderId = String(shiprocketOrderId);
+  }
+  if (charge) {
+    order.shiprocketChargeAmount = charge.amount;
+    order.shiprocketChargeCurrency = charge.currency;
+    order.shiprocketMessage = `Shiprocket charge deducted: ${charge.currency} ${charge.amount.toFixed(2)}`;
   }
   await order.save();
   return String(shipmentId);
@@ -1515,6 +1601,11 @@ export const generateOrderAwb = async (req, res) => {
     } catch (awbErr) {
       const payload = awbErr.shiprocket || awbErr.response?.data || { message: awbErr.message };
       const detail = extractShiprocketErrorMessage(payload);
+      order.shiprocketMessage = mapFriendlyAwbErrorMessage(detail);
+      if (/insufficient balance|minimum required balance|wallet|recharge/i.test(detail)) {
+        order.shiprocketBalanceWarning = "Please recharge your ShipRocket wallet. The minimum required balance is Rs 100";
+      }
+      await order.save();
       return res.status(400).json({
         message: mapFriendlyAwbErrorMessage(detail),
         awbMessage: mapFriendlyAwbErrorMessage(detail),
@@ -1525,6 +1616,11 @@ export const generateOrderAwb = async (req, res) => {
     const awbCode = readAwbFromKnownKeys(awbRes);
     if (!awbCode) {
       const detail = extractShiprocketErrorMessage(awbRes);
+      order.shiprocketMessage = mapFriendlyAwbErrorMessage(detail);
+      if (/insufficient balance|minimum required balance|wallet|recharge/i.test(detail)) {
+        order.shiprocketBalanceWarning = "Please recharge your ShipRocket wallet. The minimum required balance is Rs 100";
+      }
+      await order.save();
       return res.status(400).json({
         message: mapFriendlyAwbErrorMessage(detail),
         awbMessage: mapFriendlyAwbErrorMessage(detail),
@@ -1541,6 +1637,16 @@ export const generateOrderAwb = async (req, res) => {
       awbRes?.response?.data?.tracking_url ??
       awbRes?.tracking_url_short ??
       `https://shiprocket.co/tracking/${encodeURIComponent(awbCode)}`;
+    order.shiprocketBalanceWarning = null;
+
+    const awbCharge = extractShiprocketCharge(awbRes);
+    if (awbCharge) {
+      order.shiprocketChargeAmount = awbCharge.amount;
+      order.shiprocketChargeCurrency = awbCharge.currency;
+    }
+    if (Number(order.shiprocketChargeAmount || 0) > 0) {
+      order.shiprocketMessage = `Shiprocket charge deducted: ${String(order.shiprocketChargeCurrency || "INR").toUpperCase()} ${Number(order.shiprocketChargeAmount).toFixed(2)}`;
+    }
 
     const warnings = [];
     try {
@@ -1928,6 +2034,7 @@ export const updateOrderStatus = async (req, res) => {
             const orderWithUser = await Order.findById(order._id).populate("user", "name email phone");
             const forShiprocket = mapOrderToShiprocketPayload(orderWithUser);
             const srRes = await createShiprocketOrder(forShiprocket);
+            const shipmentCharge = extractShiprocketCharge(srRes);
             const shipmentId = getShipmentIdFromShiprocketResponse(srRes);
             const shiprocketOrderId = getShiprocketOrderIdFromResponse(srRes);
 
@@ -1935,6 +2042,11 @@ export const updateOrderStatus = async (req, res) => {
               order.shiprocketShipmentId = String(shipmentId);
               if (shiprocketOrderId && shiprocketOrderId !== String(order.orderId || order._id || "")) {
                 order.shiprocketOrderId = String(shiprocketOrderId);
+              }
+              if (shipmentCharge) {
+                order.shiprocketChargeAmount = shipmentCharge.amount;
+                order.shiprocketChargeCurrency = shipmentCharge.currency;
+                order.shiprocketMessage = `Shiprocket charge deducted: ${shipmentCharge.currency} ${shipmentCharge.amount.toFixed(2)}`;
               }
             } else {
               awbError = {
@@ -1972,6 +2084,7 @@ export const updateOrderStatus = async (req, res) => {
             const awbCode = readAwbFromKnownKeys(awbRes);
             if (awbCode) {
               order.shiprocketAwb = String(awbCode);
+              order.shiprocketBalanceWarning = null;
               order.trackingUrl =
                 awbRes?.tracking_url ??
                 awbRes?.tracking ??
@@ -1980,6 +2093,15 @@ export const updateOrderStatus = async (req, res) => {
                 awbRes?.response?.data?.tracking_url ??
                 awbRes?.tracking_url_short ??
                 `https://shiprocket.co/tracking/${encodeURIComponent(awbCode)}`;
+
+              const awbCharge = extractShiprocketCharge(awbRes);
+              if (awbCharge) {
+                order.shiprocketChargeAmount = awbCharge.amount;
+                order.shiprocketChargeCurrency = awbCharge.currency;
+              }
+              if (Number(order.shiprocketChargeAmount || 0) > 0) {
+                order.shiprocketMessage = `Shiprocket charge deducted: ${String(order.shiprocketChargeCurrency || "INR").toUpperCase()} ${Number(order.shiprocketChargeAmount).toFixed(2)}`;
+              }
 
               try {
                 const labelRes = await generateLabel(normalizedShipmentId);
@@ -2033,16 +2155,21 @@ export const updateOrderStatus = async (req, res) => {
 
       if (msg && /insufficient balance|minimum required balance|wallet|recharge/i.test(msg)) {
         order.shiprocketBalanceWarning = "Please recharge your ShipRocket wallet. The minimum required balance is Rs 100";
+        order.shiprocketMessage = order.shiprocketBalanceWarning;
         json.awbMessage = "Please recharge your ShipRocket wallet. The minimum required balance is Rs 100";
       } else if (msg && /kyc|verification|complete your kyc/i.test(msg)) {
+        order.shiprocketMessage = "Complete KYC on Shiprocket to generate AWB. Log in to Shiprocket dashboard and retry DISPATCHED.";
         json.awbMessage = "Complete KYC on Shiprocket to generate AWB. Log in to Shiprocket dashboard and retry DISPATCHED.";
       } else if (
         code === 401 ||
         code === 403 ||
         (msg && /access forbidden|unauthorized|don't have permission|blocked/i.test(msg))
       ) {
+        order.shiprocketMessage = "Shiprocket returned 403: account does not have permission to assign AWB.";
         json.awbMessage = "Shiprocket returned 403: account does not have permission to assign AWB.";
       }
+
+      await order.save();
     }
 
     return res.json(json);

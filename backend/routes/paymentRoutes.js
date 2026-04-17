@@ -106,6 +106,10 @@ router.get("/orders", async (req, res) => {
         shiprocketCancelError: shiprocketCancel.shiprocketCancelError,
         shiprocketCancelAttempts: o.shiprocketCancelAttempts || 0,
         shiprocketCancelLastTriedAt: o.shiprocketCancelLastTriedAt || null,
+        shiprocketBalanceWarning: o.shiprocketBalanceWarning || null,
+        shiprocketMessage: o.shiprocketMessage || null,
+        shiprocketChargeAmount: Number(o.shiprocketChargeAmount || 0),
+        shiprocketChargeCurrency: o.shiprocketChargeCurrency || "INR",
         trackingUrl: toTrackingUrl(o.shiprocketAwb, o.trackingUrl),
       };
     });
@@ -166,6 +170,10 @@ router.get("/orders/:orderId", async (req, res) => {
       shiprocketCancelError: shiprocketCancel.shiprocketCancelError,
       shiprocketCancelAttempts: order.shiprocketCancelAttempts || 0,
       shiprocketCancelLastTriedAt: order.shiprocketCancelLastTriedAt || null,
+      shiprocketBalanceWarning: order.shiprocketBalanceWarning || null,
+      shiprocketMessage: order.shiprocketMessage || null,
+      shiprocketChargeAmount: Number(order.shiprocketChargeAmount || 0),
+      shiprocketChargeCurrency: order.shiprocketChargeCurrency || "INR",
       refundId: order.refundId || order.razorpayRefundId || null,
       refundTime: order.refundAt || null,
       trackingUrl: toTrackingUrl(order.shiprocketAwb, order.trackingUrl),

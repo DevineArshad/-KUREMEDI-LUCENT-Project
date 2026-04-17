@@ -235,6 +235,7 @@ const Orders = () => {
               <th className="p-3 text-left">Order Date</th>
               <th className="p-3 text-left">Status</th>
               <th className="p-3 text-left">Shipment / AWB</th>
+              <th className="p-3 text-left">Message</th>
               <th className="p-3 text-left">Actions</th>
             </tr>
           </thead>
@@ -242,13 +243,13 @@ const Orders = () => {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="10" className="text-center py-10">
+                <td colSpan="11" className="text-center py-10">
                   <Loader2 className="animate-spin mx-auto h-8 w-8 text-blue-500" />
                 </td>
               </tr>
             ) : filteredOrders.length === 0 ? (
               <tr>
-                <td colSpan="10" className="text-center py-10 text-gray-500">
+                <td colSpan="11" className="text-center py-10 text-gray-500">
                   No orders found
                 </td>
               </tr>
@@ -267,6 +268,23 @@ const Orders = () => {
                     .join(", ") || "-";
                 const status = (order.status || "PLACED").toUpperCase();
                 const isUpdating = updatingId === order._id;
+                const shiprocketCharge = Number(order.shiprocketChargeAmount || 0);
+                const shiprocketCurrency = String(order.shiprocketChargeCurrency || "INR").toUpperCase();
+                const hasDispatchMessage = status === "DISPATCHED";
+
+                let messageContent = "-";
+                let messageClass = "text-gray-600";
+
+                if (hasDispatchMessage && order.shiprocketBalanceWarning) {
+                  messageContent = order.shiprocketBalanceWarning;
+                  messageClass = "text-red-700";
+                } else if (hasDispatchMessage && shiprocketCharge > 0) {
+                  messageContent = `Shiprocket charge deducted: ${shiprocketCurrency} ${shiprocketCharge.toFixed(2)}`;
+                  messageClass = "text-emerald-700";
+                } else if (hasDispatchMessage && order.shiprocketMessage) {
+                  messageContent = order.shiprocketMessage;
+                  messageClass = "text-amber-700";
+                }
 
                 return (
                   <tr
@@ -343,6 +361,9 @@ const Orders = () => {
                       ) : (
                         "—"
                       )}
+                    </td>
+                    <td className="p-3 text-xs max-w-75">
+                      <p className={messageClass}>{messageContent}</p>
                     </td>
                     <td className="p-3">
                       <div className="flex items-center gap-2">
