@@ -384,7 +384,10 @@ const Orders = () => {
                 const isUpdating = updatingId === order._id;
                 const shiprocketCharge = Number(order.shiprocketChargeAmount || 0);
                 const shiprocketCurrency = String(order.shiprocketChargeCurrency || "INR").toUpperCase();
-                const hasDispatchMessage = status === "DISPATCHED";
+                const chargeText =
+                  shiprocketCharge > 0
+                    ? `Shiprocket charge deducted: ${shiprocketCurrency} ${shiprocketCharge.toFixed(2)}`
+                    : "";
                 const validAwb = isValidAwbText(order.shiprocketAwb) ? String(order.shiprocketAwb).trim() : "";
                 const shipmentId = String(order.shiprocketShipmentId || "").split(",")[0].trim();
                 const legacyShiprocketMessage = extractLegacyShiprocketMessage(order);
@@ -392,17 +395,23 @@ const Orders = () => {
                 let messageContent = "-";
                 let messageClass = "text-gray-600";
 
-                if (hasDispatchMessage && order.shiprocketBalanceWarning) {
-                  messageContent = order.shiprocketBalanceWarning;
+                if (order.shiprocketBalanceWarning) {
+                  messageContent = chargeText
+                    ? `${order.shiprocketBalanceWarning} (${chargeText})`
+                    : order.shiprocketBalanceWarning;
                   messageClass = "text-red-700";
-                } else if (hasDispatchMessage && legacyShiprocketMessage) {
-                  messageContent = legacyShiprocketMessage;
+                } else if (legacyShiprocketMessage) {
+                  messageContent = chargeText
+                    ? `${legacyShiprocketMessage} (${chargeText})`
+                    : legacyShiprocketMessage;
                   messageClass = "text-red-700";
-                } else if (hasDispatchMessage && shiprocketCharge > 0) {
-                  messageContent = `Shiprocket charge deducted: ${shiprocketCurrency} ${shiprocketCharge.toFixed(2)}`;
+                } else if (shiprocketCharge > 0) {
+                  messageContent = chargeText;
                   messageClass = "text-emerald-700";
-                } else if (hasDispatchMessage && order.shiprocketMessage) {
-                  messageContent = order.shiprocketMessage;
+                } else if (order.shiprocketMessage) {
+                  messageContent = chargeText
+                    ? `${order.shiprocketMessage} (${chargeText})`
+                    : order.shiprocketMessage;
                   messageClass = "text-amber-700";
                 }
 

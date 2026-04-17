@@ -1204,7 +1204,16 @@ const extractShiprocketCharge = (payload) => {
   ];
 
   const parseNumber = (value) => {
-    const num = Number(value);
+    let numericValue = value;
+    if (typeof value === "string") {
+      const cleaned = value
+        .replace(/,/g, "")
+        .replace(/[^0-9.-]/g, "")
+        .trim();
+      numericValue = cleaned;
+    }
+
+    const num = Number(numericValue);
     if (!Number.isFinite(num)) return null;
     if (num <= 0) return null;
     return Math.round(num * 100) / 100;
