@@ -401,12 +401,12 @@ const Orders = () => {
                 const deductionText =
                   balanceDeduction > 0
                     ? `Deduction = Previous Balance - Current Balance: ${shiprocketCurrency} ${shiprocketBalanceBefore.toFixed(2)} - ${shiprocketCurrency} ${Number(derivedBalanceAfter).toFixed(2)} = ${shiprocketCurrency} ${balanceDeduction.toFixed(2)}`
-                    : "";
-                const chargeText =
-                  deductionText ||
-                  (shiprocketCharge > 0
-                    ? `Shiprocket charge deducted: ${shiprocketCurrency} ${shiprocketCharge.toFixed(2)}`
-                    : "");
+                    : shiprocketCharge > 0
+                      ? `Deducted Amount: ${shiprocketCurrency} ${shiprocketCharge.toFixed(2)}`
+                      : status === "DISPATCHED"
+                        ? `Deducted Amount: ${shiprocketCurrency} 0.00`
+                        : "";
+                const chargeText = deductionText;
                 const validAwb = isValidAwbText(order.shiprocketAwb) ? String(order.shiprocketAwb).trim() : "";
                 const shipmentId = String(order.shiprocketShipmentId || "").split(",")[0].trim();
                 const legacyShiprocketMessage = extractLegacyShiprocketMessage(order);
@@ -424,7 +424,7 @@ const Orders = () => {
                     ? `${legacyShiprocketMessage} (${chargeText})`
                     : legacyShiprocketMessage;
                   messageClass = "text-red-700";
-                } else if (balanceDeduction > 0 || shiprocketCharge > 0) {
+                } else if (status === "DISPATCHED" && chargeText) {
                   messageContent = chargeText;
                   messageClass = "text-emerald-700";
                 } else if (order.shiprocketMessage) {
