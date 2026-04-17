@@ -9,6 +9,7 @@ const TABS = [
   { key: "all", label: "All Orders" },
   { key: "processing", label: "Processing" },
   { key: "DISPATCHED", label: "Shipped" },
+  { key: "low_balance", label: "Low Balance" },
   { key: "DELIVERED", label: "Delivered" },
   { key: "CANCELLED", label: "Cancelled" },
 ];
@@ -62,11 +63,19 @@ const extractLegacyShiprocketMessage = (order) => {
 
 
 const Orders = () => {
-  const { getallOrders, updateOrderStatus, setActiveTab: setGlobalActiveTab, setSelectedOrderId, getOrderById } = useContextApi();
+  const { getallOrders, getShiprocketWalletBalance, updateOrderStatus, setActiveTab: setGlobalActiveTab, setSelectedOrderId, getOrderById } = useContextApi();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("all");
   const [updatingId, setUpdatingId] = useState(null);
+  const [walletData, setWalletData] = useState({
+    balance: null,
+    currency: "INR",
+    isLowBalance: null,
+    threshold: 100,
+    message: "",
+  });
+  const [walletLoading, setWalletLoading] = useState(false);
 
 
 
@@ -106,15 +115,49 @@ const Orders = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fetch on mount only
   }, []);
 
+  const fetchWalletBalance = useCallback(async () => {
+    setWalletLoading(true);
+    try {
+      const data = await getShiprocketWalletBalance();
+      setWalletData({
+        balance: Number(data?.balance),
+        currency: String(data?.currency || "INR").toUpperCase(),
+        isLowBalance: Boolean(data?.isLowBalance),
+        threshold: Number(data?.threshold || 100),
+        message: String(data?.message || ""),
+      });
+    } catch (err) {
+      const msg = String(err?.response?.data?.message || "Unable to fetch Shiprocket wallet balance");
+      setWalletData({
+        balance: null,
+        currency: "INR",
+        isLowBalance: null,
+        threshold: 100,
+        message: msg,
+      });
+    } finally {
+      setWalletLoading(false);
+    }
+  }, [getShiprocketWalletBalance]);
+
+  const refreshAllData = useCallback(async () => {
+    await Promise.allSettled([fetchOrders(), fetchWalletBalance()]);
+  }, [fetchOrders, fetchWalletBalance]);
+
   useEffect(() => {
-    fetchOrders();
-  }, [fetchOrders]);
+    refreshAllData();
+  }, [refreshAllData]);
 
   const filteredOrders = orders.filter((o) => {
     const s = (o.status || "").toUpperCase();
     if (activeTab === "all") return true;
     if (activeTab === "processing")
       return ["PLACED", "CONFIRMED"].includes(s);
+    if (activeTab === "low_balance") {
+      const msg = String(o.shiprocketBalanceWarning || o.shiprocketMessage || "");
+      const legacyMsg = extractLegacyShiprocketMessage(o);
+      return /insufficient balance|minimum required balance|recharge|wallet/i.test(msg || legacyMsg);
+    }
     return s === activeTab;
   });
 
@@ -133,6 +176,11 @@ const Orders = () => {
     all: orders.length,
     processing: stats.processing,
     DISPATCHED: stats.shipped,
+    low_balance: orders.filter((o) => {
+      const msg = String(o.shiprocketBalanceWarning || o.shiprocketMessage || "");
+      const legacyMsg = extractLegacyShiprocketMessage(o);
+      return /insufficient balance|minimum required balance|recharge|wallet/i.test(msg || legacyMsg);
+    }).length,
     DELIVERED: orders.filter((o) =>
       (o.status || "").toUpperCase() === "DELIVERED"
     ).length,
@@ -209,11 +257,11 @@ const Orders = () => {
         </div>
 
         <button
-          onClick={fetchOrders}
-          disabled={loading}
+          onClick={refreshAllData}
+          disabled={loading || walletLoading}
           className="flex items-center gap-2 px-4 py-2 bg-white border rounded-lg text-sm hover:bg-gray-100 disabled:opacity-70"
         >
-          {loading ? (
+          {loading || walletLoading ? (
             <Loader2 size={16} className="animate-spin" />
           ) : (
             <Download size={16} />
@@ -236,6 +284,44 @@ const Orders = () => {
             {label} ({tabCounts[key] ?? 0})
           </button>
         ))}
+      </div>
+
+      <div
+        className={`mb-6 rounded-xl border p-5 ${walletData.isLowBalance === true
+            ? "border-red-200 bg-linear-to-r from-red-50 via-white to-red-50"
+            : "border-emerald-200 bg-linear-to-r from-emerald-50 via-white to-cyan-50"
+          }`}
+      >
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs font-semibold tracking-wider uppercase text-gray-500">Shiprocket Wallet</p>
+            <h3 className="mt-1 text-2xl font-extrabold text-gray-900">
+              {walletLoading
+                ? "Loading..."
+                : walletData.balance == null
+                  ? "Unavailable"
+                  : `${walletData.currency} ${Number(walletData.balance).toFixed(2)}`}
+            </h3>
+          </div>
+          <div className="text-sm">
+            {walletData.isLowBalance === true ? (
+              <span className="inline-flex items-center rounded-full bg-red-100 px-3 py-1 font-semibold text-red-700">
+                Low Balance (Below {walletData.threshold})
+              </span>
+            ) : walletData.isLowBalance === false ? (
+              <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 font-semibold text-emerald-700">
+                Healthy Balance
+              </span>
+            ) : (
+              <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 font-semibold text-gray-700">
+                Status Unknown
+              </span>
+            )}
+            <p className="mt-2 text-xs text-gray-600">
+              {walletData.message || "Realtime wallet balance from Shiprocket."}
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">

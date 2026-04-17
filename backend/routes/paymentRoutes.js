@@ -2,6 +2,7 @@ import express from "express";
 import { protect } from "../middleware/protect.js";
 import { requireKycApproved } from "../middleware/authorize.js";
 import Order from "../model/Order.js";
+import { getShiprocketWalletBalance } from "../config/shiprocket.js";
 import {
   createPaymentOrder,
   generateOrderAwb,
@@ -182,6 +183,39 @@ router.get("/orders/:orderId", async (req, res) => {
     res.json({ data: mapped });
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch order" });
+  }
+});
+
+router.get("/shiprocket/wallet-balance", async (req, res) => {
+  try {
+    const result = await getShiprocketWalletBalance();
+    const balance = Number(result?.balance || 0);
+    const currency = String(result?.currency || "INR").toUpperCase();
+    const isLowBalance = balance < 100;
+
+    return res.json({
+      balance,
+      currency,
+      isLowBalance,
+      threshold: 100,
+      message: isLowBalance
+        ? "Please recharge your ShipRocket wallet. The minimum required balance is Rs 100"
+        : "Wallet balance is healthy",
+    });
+  } catch (err) {
+    const message =
+      err?.shiprocket?.message ||
+      err?.response?.data?.message ||
+      err?.message ||
+      "Failed to fetch Shiprocket wallet balance";
+
+    return res.status(400).json({
+      message,
+      balance: null,
+      currency: "INR",
+      isLowBalance: null,
+      threshold: 100,
+    });
   }
 });
 

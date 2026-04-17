@@ -547,3 +547,97 @@ export const cancelOrder = async (orderId) => {
     throw e;
   }
 };
+
+/* ---------------------------------------------------------
+   8️⃣ Fetch Shiprocket Wallet Balance
+---------------------------------------------------------- */
+export const getShiprocketWalletBalance = async () => {
+  const endpoints = [
+    "https://apiv2.shiprocket.in/v1/external/account/details",
+    "https://apiv2.shiprocket.in/v1/external/account/wallet-balance",
+    "https://apiv2.shiprocket.in/v1/external/settings/account",
+  ];
+
+  const parseBalance = (payload) => {
+    const numericCandidates = [
+      payload?.wallet_balance,
+      payload?.balance,
+      payload?.available_balance,
+      payload?.data?.wallet_balance,
+      payload?.data?.balance,
+      payload?.data?.available_balance,
+      payload?.response?.wallet_balance,
+      payload?.response?.balance,
+      payload?.response?.available_balance,
+      payload?.response?.data?.wallet_balance,
+      payload?.response?.data?.balance,
+      payload?.response?.data?.available_balance,
+    ];
+
+    for (const candidate of numericCandidates) {
+      const num = Number(candidate);
+      if (Number.isFinite(num)) {
+        return Math.round(num * 100) / 100;
+      }
+    }
+
+    const visited = new Set();
+    const deepScan = (node) => {
+      if (!node || typeof node !== "object") return null;
+      if (visited.has(node)) return null;
+      visited.add(node);
+
+      for (const [key, value] of Object.entries(node)) {
+        const lowerKey = String(key || "").toLowerCase();
+        if (/(wallet|balance)/.test(lowerKey)) {
+          const num = Number(value);
+          if (Number.isFinite(num)) return Math.round(num * 100) / 100;
+        }
+        if (value && typeof value === "object") {
+          const nested = deepScan(value);
+          if (nested != null) return nested;
+        }
+      }
+      return null;
+    };
+
+    return deepScan(payload);
+  };
+
+  let lastError = null;
+  for (const endpoint of endpoints) {
+    try {
+      const res = await withShiprocketAuthRetry((token) =>
+        axios.get(endpoint, { headers: { Authorization: `Bearer ${token}` } })
+      );
+
+      const raw = res?.data || {};
+      const balance = parseBalance(raw);
+      if (balance != null) {
+        return {
+          balance,
+          currency: "INR",
+          raw,
+        };
+      }
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  const responseMessage =
+    lastError?.response?.data?.message ||
+    lastError?.response?.data?.error ||
+    lastError?.response?.data?.errors?.[0]?.message ||
+    lastError?.message ||
+    "Failed to fetch Shiprocket wallet balance";
+
+  const e = new Error(responseMessage);
+  e.shiprocket = {
+    stage: "wallet_balance",
+    message: responseMessage,
+    response: lastError?.response?.data,
+    status: lastError?.response?.status,
+  };
+  throw e;
+};

@@ -544,6 +544,21 @@ export const ContextProvider = ({ children }) => {
     }
   };
 
+  const getShiprocketWalletBalance = async () => {
+    const base = BASE_URL.replace(/\/$/, "");
+    const url = base.includes("/api")
+      ? `${base}/payment/shiprocket/wallet-balance`
+      : `${base}/api/payment/shiprocket/wallet-balance`;
+
+    try {
+      const res = await axios.get(url, { headers: getAuthHeaders() });
+      return res.data;
+    } catch (error) {
+      console.error("fetch shiprocket wallet balance error", error);
+      throw error;
+    }
+  };
+
   const getReferralAmount = async () => {
     const base = BASE_URL.replace(/\/$/, "");
     const url = base.includes("/api") ? `${base}/config/referral-amount` : `${base}/api/config/referral-amount`;
@@ -1435,7 +1450,7 @@ export const ContextProvider = ({ children }) => {
         deleteAllKycDocuments,
         updateBlog, getAllUsers, deleteUser, blockUser, getDeletedUsersHistory, kycStatusUpdate, updateUserKYCStatus,
         changeAdminPassword, verifyAdminSecurityPassword, getAdminSecurityQuestions, updateAdminSecurityQuestions, requestAdminEmailChangeOldOtp, verifyAdminEmailChangeOldOtp, verifyAdminEmailChangeNewOtp, getMyProfile, getAdminUsers, createAdminUser, deleteAdminUser,
-        deleteBlog, fetchblogCategories, addblogCategory, updateblogCategory, deleteblogCategory, enquiries, addEnquiry, updateEnquiry, deleteEnquiry, fetchEnquiries, user, login, getallOrders, createProducts, createProductWithFormData, updateProductWithFormData, updateProducts, deleteProducts, bulkImportProducts, deletesubcategory, createsubcategory, updatesubcategory, updateOrderStatus, processOrderRefund, retryShiprocketCancel, generateOrderAwb, getAllEnquiries, logout, activeTab, setActiveTab, GetSubCategoryData, GetCategoryData, AddCategoryData, createCategoryWithFormData, updateCategoryWithFormData, uploadImage, UpdateCategoryData, DeleteCategory, getBrands, createBrand, createBrandWithFormData, updateBrand, updateBrandWithFormData, deleteBrand, getReferralAmount, setReferralAmount, getReferralRewards, setReferralRewards,
+        deleteBlog, fetchblogCategories, addblogCategory, updateblogCategory, deleteblogCategory, enquiries, addEnquiry, updateEnquiry, deleteEnquiry, fetchEnquiries, user, login, getallOrders, getShiprocketWalletBalance, createProducts, createProductWithFormData, updateProductWithFormData, updateProducts, deleteProducts, bulkImportProducts, deletesubcategory, createsubcategory, updatesubcategory, updateOrderStatus, processOrderRefund, retryShiprocketCancel, generateOrderAwb, getAllEnquiries, logout, activeTab, setActiveTab, GetSubCategoryData, GetCategoryData, AddCategoryData, createCategoryWithFormData, updateCategoryWithFormData, uploadImage, UpdateCategoryData, DeleteCategory, getBrands, createBrand, createBrandWithFormData, updateBrand, updateBrandWithFormData, deleteBrand, getReferralAmount, setReferralAmount, getReferralRewards, setReferralRewards,
         getAgents, getAgentById, createAgent, updateAgent, deleteAgent, updateAgentKycStatus, getUploadBaseUrl, getReferralsTracking, reprocessReferralReward,
         getMarketingBanners, createMarketingBanner, updateMarketingBanner, deleteMarketingBanner,
         getSupportTickets, getSupportTicketById, replySupportTicket, updateSupportTicketStatus, addSupportCallNote, updateSupportTicketNotes, initiateSupportCall,
