@@ -1165,6 +1165,7 @@ router.put(
     try {
       const user = await User.findById(req.user._id);
       if (!user) return res.status(404).json({ message: "User not found" });
+      const isAgentUser = String(user.role || "").toLowerCase() === "agent";
 
       const {
         aadharNumber,
@@ -1191,11 +1192,13 @@ router.put(
       const effectiveShopImage = files?.shopImage?.[0] || user.shopImage;
       const effectiveGstNumber = normalizedGstNumber || String(user.gstNumber || "").trim().toUpperCase();
 
-      if (!normalizedDrugLicenseNumber && !String(user.drugLicenseNumber || "").trim()) {
-        return res.status(400).json({ message: "Drug license number is required" });
-      }
-      if (!effectiveDrugLicenseDoc) {
-        return res.status(400).json({ message: "Upload drug license document" });
+      if (!isAgentUser) {
+        if (!normalizedDrugLicenseNumber && !String(user.drugLicenseNumber || "").trim()) {
+          return res.status(400).json({ message: "Drug license number is required" });
+        }
+        if (!effectiveDrugLicenseDoc) {
+          return res.status(400).json({ message: "Upload drug license document" });
+        }
       }
       if (!normalizedBankName && !String(user.bankName || "").trim()) {
         return res.status(400).json({ message: "Bank name is required" });
@@ -1218,22 +1221,24 @@ router.put(
       if (!effectiveCancelChequeDoc) {
         return res.status(400).json({ message: "Upload cancel cheque or passbook document" });
       }
-      if (!effectiveGstNumber) {
-        return res.status(400).json({ message: "GST number is required" });
-      }
-      if (effectiveGstNumber && !GST_REGEX.test(effectiveGstNumber)) {
-        return res.status(400).json({ message: "Invalid GST number. Enter a valid 15-character GSTIN" });
-      }
-      if (!effectiveGstDoc) {
-        return res.status(400).json({ message: "Upload GST certificate document" });
-      }
-      if (!effectiveShopImage) {
-        return res.status(400).json({ message: "Upload shop photo" });
+      if (!isAgentUser) {
+        if (!effectiveGstNumber) {
+          return res.status(400).json({ message: "GST number is required" });
+        }
+        if (effectiveGstNumber && !GST_REGEX.test(effectiveGstNumber)) {
+          return res.status(400).json({ message: "Invalid GST number. Enter a valid 15-character GSTIN" });
+        }
+        if (!effectiveGstDoc) {
+          return res.status(400).json({ message: "Upload GST certificate document" });
+        }
+        if (!effectiveShopImage) {
+          return res.status(400).json({ message: "Upload shop photo" });
+        }
       }
 
       if (aadharNumber) user.aadharNumber = aadharNumber;
-      if (normalizedDrugLicenseNumber) user.drugLicenseNumber = normalizedDrugLicenseNumber;
-      if (normalizedGstNumber) user.gstNumber = normalizedGstNumber;
+      if (!isAgentUser && normalizedDrugLicenseNumber) user.drugLicenseNumber = normalizedDrugLicenseNumber;
+      if (!isAgentUser && normalizedGstNumber) user.gstNumber = normalizedGstNumber;
       if (panNumber) user.panNumber = panNumber;
       if (normalizedBankName) user.bankName = normalizedBankName;
       if (normalizedAccountHolderName) user.accountHolderName = normalizedAccountHolderName;
@@ -1264,10 +1269,10 @@ router.put(
       ]);
 
       if (aadharDocUrl) user.aadharDoc = aadharDocUrl;
-      if (drugLicenseDocUrl) user.drugLicenseDoc = drugLicenseDocUrl;
-      if (gstDocUrl) user.gstDoc = gstDocUrl;
+      if (!isAgentUser && drugLicenseDocUrl) user.drugLicenseDoc = drugLicenseDocUrl;
+      if (!isAgentUser && gstDocUrl) user.gstDoc = gstDocUrl;
       if (panDocUrl) user.panDoc = panDocUrl;
-      if (shopImageUrl) user.shopImage = shopImageUrl;
+      if (!isAgentUser && shopImageUrl) user.shopImage = shopImageUrl;
       if (cancelChequeDocUrl) user.cancelChequeDoc = cancelChequeDocUrl;
 
       user.kyc = "PENDING";
