@@ -61,6 +61,8 @@ const generateToken = (payload, expiresIn = "7d") =>
 
 const normalizeEmail = (value) => String(value || "").trim().toLowerCase();
 const normalizePhone = (value) => String(value || "").trim();
+const isSmsConfigError = (errorMessage) =>
+  /credentials not configured|not configured/i.test(String(errorMessage || ""));
 const PRIMARY_ADMIN_EMAIL = normalizeEmail(
   process.env.PRIMARY_ADMIN_EMAIL || "ankurkushwaha237@gmail.com"
 );
@@ -180,7 +182,18 @@ router.post("/send-otp", async (req, res) => {
     // Send SMS via Twilio
     const smsResult = await sendOtpSms(normalizedPhone, otp);
     if (!smsResult.success) {
-      return res.status(503).json({ message: "Failed to send OTP" });
+      await Otp.deleteOne({ phone: normalizedPhone });
+      const smsError = String(smsResult.error || "");
+      console.error("[OTP] send-otp delivery failed", {
+        phone: normalizedPhone,
+        error: smsError,
+      });
+      if (isSmsConfigError(smsError)) {
+        return res.status(503).json({
+          message: "OTP service is not configured. Please contact support.",
+        });
+      }
+      return res.status(503).json({ message: "Failed to send OTP. Please try again." });
     }
 
     res.json({
@@ -398,7 +411,18 @@ router.post("/password-reset/send-otp", async (req, res) => {
 
     const smsResult = await sendOtpSms(phone, otp);
     if (!smsResult.success) {
-      return res.status(503).json({ message: "Failed to send OTP" });
+      await Otp.deleteOne({ phone });
+      const smsError = String(smsResult.error || "");
+      console.error("[OTP] password-reset send-otp delivery failed", {
+        phone,
+        error: smsError,
+      });
+      if (isSmsConfigError(smsError)) {
+        return res.status(503).json({
+          message: "OTP service is not configured. Please contact support.",
+        });
+      }
+      return res.status(503).json({ message: "Failed to send OTP. Please try again." });
     }
 
     res.json({
