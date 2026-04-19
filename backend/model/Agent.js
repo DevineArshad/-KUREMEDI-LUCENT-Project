@@ -49,9 +49,6 @@ const agentSchema = new mongoose.Schema(
     aadharDoc: { type: String },
     panNumber: { type: String, trim: true },
     panDoc: { type: String },
-    drugLicenseNumber: { type: String, trim: true },
-    drugLicenseDoc: { type: String },
-    drugLicenseExpiry: { type: Date },
     gstNumber: { type: String, trim: true },
     gstDoc: { type: String },
     kycStatus: {

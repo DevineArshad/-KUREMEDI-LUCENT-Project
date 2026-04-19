@@ -32,7 +32,6 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [referralCode, setReferralCode] = useState('');
   const [loading, setLoading] = useState(false);
-  const [devOtp, setDevOtp] = useState<string | null>(null);
   const [tempToken, setTempToken] = useState<string | null>(null);
 
   const formatPhone = (val: string) => val.replace(/\D/g, '').slice(0, 10);
@@ -45,11 +44,10 @@ export default function LoginScreen() {
     }
     try {
       setLoading(true);
-      const res = await sendOtp(cleaned);
+      await sendOtp(cleaned);
       setPhone(cleaned);
       setStep('otp');
       setOtp('');
-      setDevOtp(res?.devOtp ?? null);
       setTempToken(null);
     } catch (err: unknown) {
       const msg =
@@ -135,7 +133,6 @@ export default function LoginScreen() {
     if (step === 'otp') {
       setStep('mobile');
       setOtp('');
-      setDevOtp(null);
     } else if (step === 'register') {
       setStep('otp');
       setTempToken(null);
@@ -214,7 +211,7 @@ export default function LoginScreen() {
                   />
                 </View>
                 <Text style={styles.otpNote}>
-                  A 4 digit OTP will be sent via SMS to verify your mobile number!
+                  A real-time 6 digit OTP will be sent via SMS to verify your mobile number.
                 </Text>
                 <PrimaryButton
                   onPress={handleSendOTP}
@@ -245,7 +242,6 @@ export default function LoginScreen() {
                     autoFocus
                   />
                 </View>
-                {devOtp ? <Text style={styles.devOtp}>Dev OTP: {devOtp}</Text> : null}
                 <PrimaryButton
                   onPress={handleVerifyOTP}
                   disabled={loading}
@@ -371,7 +367,6 @@ const styles = StyleSheet.create({
     letterSpacing: 8,
     color: '#111',
   },
-  devOtp: { fontSize: 12, color: '#9ca3af', textAlign: 'center', marginBottom: 8 },
   resendWrap: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', marginTop: 16, alignItems: 'center' },
   resendLabel: { fontSize: 14, color: '#6b7280' },
   resendLink: { fontSize: 14, color: '#0d9488', fontWeight: '600' },

@@ -393,13 +393,12 @@ router.put(
 
       const fields = [
         "name", "email", "phone", "territory",
-        "aadharNumber", "panNumber", "drugLicenseNumber", "gstNumber",
+        "aadharNumber", "panNumber", "gstNumber",
         "bankName", "accountHolderName", "accountNumber", "ifscCode",
       ];
       fields.forEach((f) => {
         if (req.body[f] !== undefined) agent[f] = req.body[f];
       });
-      if (req.body.drugLicenseExpiry) agent.drugLicenseExpiry = new Date(req.body.drugLicenseExpiry);
 
       const files = req.files;
       if (files?.profileImage) agent.profileImage = `agents/${files.profileImage[0].filename}`;
@@ -764,14 +763,13 @@ router.put(
 
       const fields = [
         "name", "email", "phone", "territory", "address", "status",
-        "aadharNumber", "panNumber", "drugLicenseNumber", "gstNumber",
+        "aadharNumber", "panNumber", "gstNumber",
         "bankName", "accountHolderName", "accountNumber", "ifscCode",
         "kycStatus", "retailersOnboarded", "totalEarned", "totalPending",
       ];
       fields.forEach((f) => {
         if (req.body[f] !== undefined) agent[f] = req.body[f];
       });
-      if (req.body.drugLicenseExpiry) agent.drugLicenseExpiry = new Date(req.body.drugLicenseExpiry);
 
       const files = req.files;
       if (files?.profileImage) agent.profileImage = `agents/${files.profileImage[0].filename}`;

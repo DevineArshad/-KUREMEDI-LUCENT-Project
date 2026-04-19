@@ -61,9 +61,6 @@ const generateToken = (payload, expiresIn = "7d") =>
 
 const normalizeEmail = (value) => String(value || "").trim().toLowerCase();
 const normalizePhone = (value) => String(value || "").trim();
-const TEST_OTP_PHONE = "9876543211";
-const TEST_OTP_CODE = "123456";
-const isTestOtpMode = () => process.env.NODE_ENV !== "production";
 const PRIMARY_ADMIN_EMAIL = normalizeEmail(
   process.env.PRIMARY_ADMIN_EMAIL || "ankurkushwaha237@gmail.com"
 );
@@ -171,22 +168,6 @@ router.post("/send-otp", async (req, res) => {
 
     const normalizedPhone = String(phone).trim();
 
-    if (isTestOtpMode() && normalizedPhone === TEST_OTP_PHONE) {
-      await Otp.findOneAndUpdate(
-        { phone: normalizedPhone },
-        {
-          phone: normalizedPhone,
-          otp: TEST_OTP_CODE,
-          expiresAt: new Date(Date.now() + 5 * 60 * 1000),
-        },
-        { upsert: true, new: true }
-      );
-      return res.json({
-        message: "OTP sent successfully",
-        devOtp: TEST_OTP_CODE,
-      });
-    }
-
     const otp = crypto.randomInt(100000, 999999).toString();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
@@ -199,18 +180,11 @@ router.post("/send-otp", async (req, res) => {
     // Send SMS via Twilio
     const smsResult = await sendOtpSms(normalizedPhone, otp);
     if (!smsResult.success) {
-      if (process.env.NODE_ENV !== "production") {
-        return res.json({
-          message: "OTP generated (Twilio not configured - use devOtp for testing)",
-          devOtp: otp,
-        });
-      }
       return res.status(503).json({ message: "Failed to send OTP" });
     }
 
     res.json({
       message: "OTP sent successfully",
-      ...(process.env.NODE_ENV !== "production" && { devOtp: otp }),
     });
   } catch (error) {
     res.status(500).json({ message: "Server error" });
@@ -232,34 +206,17 @@ router.post("/verify-otp", async (req, res) => {
     const normalizedOtp = String(otp).trim();
     let verifiedMessage = "OTP verified successfully";
 
-    if (isTestOtpMode() && normalizedPhone === TEST_OTP_PHONE) {
-      if (normalizedOtp !== TEST_OTP_CODE) {
-        return res.status(401).json({ message: "Invalid OTP" });
-      }
+    const otpDoc = await Otp.findOne({
+      phone: normalizedPhone,
+      otp: normalizedOtp,
+    });
 
-      // Keep the test pair available for repeated dev verification.
-      await Otp.findOneAndUpdate(
-        { phone: normalizedPhone },
-        {
-          phone: normalizedPhone,
-          otp: TEST_OTP_CODE,
-          expiresAt: new Date(Date.now() + 5 * 60 * 1000),
-        },
-        { upsert: true, new: true }
-      );
-    } else {
-      const otpDoc = await Otp.findOne({
-        phone: normalizedPhone,
-        otp: normalizedOtp,
-      });
+    if (!otpDoc)
+      return res.status(401).json({ message: "Invalid or expired OTP" });
+    if (new Date() > otpDoc.expiresAt)
+      return res.status(401).json({ message: "OTP has expired" });
 
-      if (!otpDoc)
-        return res.status(401).json({ message: "Invalid or expired OTP" });
-      if (new Date() > otpDoc.expiresAt)
-        return res.status(401).json({ message: "OTP has expired" });
-
-      await Otp.deleteOne({ _id: otpDoc._id });
-    }
+    await Otp.deleteOne({ _id: otpDoc._id });
 
     const user = await User.findOne({ phone: normalizedPhone });
     if (user) {
@@ -441,18 +398,11 @@ router.post("/password-reset/send-otp", async (req, res) => {
 
     const smsResult = await sendOtpSms(phone, otp);
     if (!smsResult.success) {
-      if (process.env.NODE_ENV !== "production") {
-        return res.json({
-          message: "OTP generated (Twilio not configured - use devOtp for testing)",
-          devOtp: otp,
-        });
-      }
       return res.status(503).json({ message: "Failed to send OTP" });
     }
 
     res.json({
       message: "OTP sent successfully",
-      ...(process.env.NODE_ENV !== "production" && { devOtp: otp }),
     });
   } catch (error) {
     res.status(500).json({ message: "Server error" });
@@ -963,11 +913,10 @@ router.post("/admin/email-change/request-old", protect, authorizeRoles("admin"),
       return res.json({
         message: `OTP generated locally because email delivery failed: ${sendResult.error || "Mail provider rejected the request"}`,
         mailStatusCode: sendResult.statusCode || null,
-        devOtp: otp,
       });
     }
 
-    res.json({ message: "OTP sent to current email", ...(process.env.NODE_ENV !== "production" && { devOtp: otp }) });
+    res.json({ message: "OTP sent to current email" });
   } catch (error) {
     res.status(500).json({ message: "Server error" });
   }
@@ -1017,11 +966,10 @@ router.post("/admin/email-change/verify-old", protect, authorizeRoles("admin"), 
       return res.json({
         message: `Old email verified. New email OTP generated locally because email delivery failed: ${sendResult.error || "Mail provider rejected the request"}`,
         mailStatusCode: sendResult.statusCode || null,
-        devOtp: newOtp,
       });
     }
 
-    res.json({ message: "Old email verified. OTP sent to new email.", ...(process.env.NODE_ENV !== "production" && { devOtp: newOtp }) });
+    res.json({ message: "Old email verified. OTP sent to new email." });
   } catch (error) {
     res.status(500).json({ message: "Server error" });
   }
@@ -1294,7 +1242,6 @@ router.put(
       if (agent) {
         agent.aadharNumber = user.aadharNumber;
         agent.panNumber = user.panNumber;
-        agent.drugLicenseNumber = user.drugLicenseNumber;
         agent.gstNumber = user.gstNumber;
         agent.bankName = user.bankName;
         agent.accountHolderName = user.accountHolderName;
@@ -1304,7 +1251,6 @@ router.put(
         if (aadharDocUrl) agent.aadharDoc = aadharDocUrl;
         if (panDocUrl) agent.panDoc = panDocUrl;
         if (cancelChequeDocUrl) agent.cancelChequeDoc = cancelChequeDocUrl;
-        if (drugLicenseDocUrl) agent.drugLicenseDoc = drugLicenseDocUrl;
         if (gstDocUrl) agent.gstDoc = gstDocUrl;
         await agent.save();
       }
