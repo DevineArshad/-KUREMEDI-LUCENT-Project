@@ -32,6 +32,7 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [referralCode, setReferralCode] = useState('');
   const [loading, setLoading] = useState(false);
+  const [devOtp, setDevOtp] = useState<string | null>(null);
   const [tempToken, setTempToken] = useState<string | null>(null);
 
   const formatPhone = (val: string) => val.replace(/\D/g, '').slice(0, 10);
@@ -44,10 +45,11 @@ export default function LoginScreen() {
     }
     try {
       setLoading(true);
-      await sendOtp(cleaned);
+      const res = await sendOtp(cleaned);
       setPhone(cleaned);
       setStep('otp');
       setOtp('');
+      setDevOtp(res?.devOtp ?? null);
       setTempToken(null);
     } catch (err: unknown) {
       const msg =
@@ -133,6 +135,7 @@ export default function LoginScreen() {
     if (step === 'otp') {
       setStep('mobile');
       setOtp('');
+      setDevOtp(null);
     } else if (step === 'register') {
       setStep('otp');
       setTempToken(null);
@@ -242,6 +245,7 @@ export default function LoginScreen() {
                     autoFocus
                   />
                 </View>
+                {devOtp ? <Text style={styles.devOtp}>Dev OTP: {devOtp}</Text> : null}
                 <PrimaryButton
                   onPress={handleVerifyOTP}
                   disabled={loading}
@@ -356,6 +360,7 @@ const styles = StyleSheet.create({
   primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   phoneDisplay: { fontSize: 15, color: '#374151', marginBottom: 12 },
   otpBoxWrap: { marginBottom: 12 },
+  devOtp: { fontSize: 12, color: '#9ca3af', textAlign: 'center', marginBottom: 8 },
   otpInput: {
     borderWidth: 1,
     borderColor: '#e5e7eb',

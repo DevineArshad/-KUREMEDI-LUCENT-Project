@@ -63,6 +63,7 @@ const normalizeEmail = (value) => String(value || "").trim().toLowerCase();
 const normalizePhone = (value) => String(value || "").trim();
 const isSmsConfigError = (errorMessage) =>
   /credentials not configured|not configured/i.test(String(errorMessage || ""));
+const isNonProduction = () => process.env.NODE_ENV !== "production";
 const PRIMARY_ADMIN_EMAIL = normalizeEmail(
   process.env.PRIMARY_ADMIN_EMAIL || "ankurkushwaha237@gmail.com"
 );
@@ -182,12 +183,19 @@ router.post("/send-otp", async (req, res) => {
     // Send SMS via Twilio
     const smsResult = await sendOtpSms(normalizedPhone, otp);
     if (!smsResult.success) {
-      await Otp.deleteOne({ phone: normalizedPhone });
       const smsError = String(smsResult.error || "");
       console.error("[OTP] send-otp delivery failed", {
         phone: normalizedPhone,
         error: smsError,
       });
+      if (isNonProduction()) {
+        return res.json({
+          message: "OTP generated for development. SMS delivery failed.",
+          devOtp: otp,
+          warning: smsError || "SMS delivery failed",
+        });
+      }
+      await Otp.deleteOne({ phone: normalizedPhone });
       if (isSmsConfigError(smsError)) {
         return res.status(503).json({
           message: "OTP service is not configured. Please contact support.",
@@ -198,6 +206,7 @@ router.post("/send-otp", async (req, res) => {
 
     res.json({
       message: "OTP sent successfully",
+      ...(isNonProduction() && { devOtp: otp }),
     });
   } catch (error) {
     res.status(500).json({ message: "Server error" });
@@ -411,12 +420,19 @@ router.post("/password-reset/send-otp", async (req, res) => {
 
     const smsResult = await sendOtpSms(phone, otp);
     if (!smsResult.success) {
-      await Otp.deleteOne({ phone });
       const smsError = String(smsResult.error || "");
       console.error("[OTP] password-reset send-otp delivery failed", {
         phone,
         error: smsError,
       });
+      if (isNonProduction()) {
+        return res.json({
+          message: "OTP generated for development. SMS delivery failed.",
+          devOtp: otp,
+          warning: smsError || "SMS delivery failed",
+        });
+      }
+      await Otp.deleteOne({ phone });
       if (isSmsConfigError(smsError)) {
         return res.status(503).json({
           message: "OTP service is not configured. Please contact support.",
@@ -427,6 +443,7 @@ router.post("/password-reset/send-otp", async (req, res) => {
 
     res.json({
       message: "OTP sent successfully",
+      ...(isNonProduction() && { devOtp: otp }),
     });
   } catch (error) {
     res.status(500).json({ message: "Server error" });
