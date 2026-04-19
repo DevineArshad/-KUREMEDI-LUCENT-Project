@@ -46,6 +46,9 @@ export default function KycScreen() {
     try {
       const freshUser = (await getMe()) as User;
       setBackendUser(freshUser);
+      if (freshUser?.kyc !== user?.kyc) {
+        await refreshUser();
+      }
     } catch (err: unknown) {
       setBackendUser(user);
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -64,6 +67,13 @@ export default function KycScreen() {
   const rejectionReason = String(
     (latestUser as User & { kycRejectionReason?: string } | null)?.kycRejectionReason || ""
   ).trim();
+  const handleGoToSignup = () => {
+    router.replace("/login");
+  };
+  const handleBackToHome = async () => {
+    await refreshUser();
+    router.replace("/(tabs)");
+  };
 
   if (!isAuthenticated || !user) {
     return (
@@ -88,7 +98,7 @@ export default function KycScreen() {
   if (kycStatus === "APPROVED") {
     return (
       <View style={[styles.screen, { paddingTop: insets.top }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable onPress={() => void handleBackToHome()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={28} color="#111" />
         </Pressable>
         <View style={styles.approvedWrap}>
@@ -106,7 +116,7 @@ export default function KycScreen() {
     return (
       <View style={[styles.screen, { paddingTop: insets.top }]}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} hitSlop={12} style={styles.headerBack}>
+          <Pressable onPress={() => void handleBackToHome()} hitSlop={12} style={styles.headerBack}>
             <Ionicons name="chevron-back" size={28} color="#111" />
           </Pressable>
           <Text style={styles.headerTitle}>{SCREEN_TITLE}</Text>
@@ -125,8 +135,8 @@ export default function KycScreen() {
             <Pressable onPress={() => void loadLatestProfile()} style={styles.secondaryBtn}>
               <Text style={styles.secondaryBtnText}>Check again</Text>
             </Pressable>
-            <Pressable onPress={() => router.back()} style={styles.primaryBtn}>
-              <Text style={styles.primaryBtnText}>Go back</Text>
+            <Pressable onPress={handleGoToSignup} style={styles.primaryBtn}>
+              <Text style={styles.primaryBtnText}>Go to Signup</Text>
             </Pressable>
           </View>
         </View>
@@ -226,7 +236,7 @@ export default function KycScreen() {
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={12} style={styles.headerBack}>
+        <Pressable onPress={() => void handleBackToHome()} hitSlop={12} style={styles.headerBack}>
           <Ionicons name="chevron-back" size={28} color="#111" />
         </Pressable>
         <Text style={styles.headerTitle}>{SCREEN_TITLE}</Text>
